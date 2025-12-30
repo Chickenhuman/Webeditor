@@ -3,7 +3,8 @@
 // ============================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+// [NEW] updateProfile 추가 (닉네임 설정용)
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -16,42 +17,48 @@ const firebaseConfig = {
   measurementId: "G-QRGF134DYV"
 };
 
-// Firebase 초기화
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
 // ============================================================
-// [2] 전역 변수 및 DOM 요소
+// [2] 전역 변수 및 상태
 // ============================================================
 let library = JSON.parse(localStorage.getItem('novelLibrary')) || [];
 let currentNovelId = null; 
 let currentChapterId = null;
 let settings = JSON.parse(localStorage.getItem('editorSettings')) || { darkMode: false, autoSaveMin: 3, targetCount: 5000, goalType: 'space' };
 
-// 히스토리 관리 변수 (Undo/Redo)
 const MAX_HISTORY = 50;
-let undoStack = [];
-let redoStack = [];
+let undoStack = [], redoStack = [];
 let historyDebounceTimer = null;
-
 let autoSaveTimerId = null;
 let hasUnsavedChanges = false;
 let isHtmlMode = false;
 let viewMode = 'library';
 let currentUser = null;
 
-// DOM 요소 선택
+// [NEW] 로그인/회원가입 모드 상태 (true: 로그인, false: 회원가입)
+let isLoginMode = true; 
+
+// DOM Elements
 const loginOverlay = document.getElementById('loginOverlay');
+const authTitle = document.getElementById('authTitle');
 const emailInput = document.getElementById('emailInput');
 const passwordInput = document.getElementById('passwordInput');
-const btnLogin = document.getElementById('btnLogin');
-const btnSignup = document.getElementById('btnSignup');
+const confirmPasswordInput = document.getElementById('confirmPasswordInput');
+const nicknameInput = document.getElementById('nicknameInput');
 const loginMessage = document.getElementById('loginMessage');
-const btnLogout = document.getElementById('btnLogout');
+const btnAuthAction = document.getElementById('btnAuthAction');
+const btnToggleMode = document.getElementById('btnToggleMode');
+const toggleText = document.getElementById('toggleText');
+const signupFields = document.getElementById('signupFields');
+const signupConfirmField = document.getElementById('signupConfirmField');
 const userInfoDisplay = document.getElementById('userInfoDisplay');
+const btnLogout = document.getElementById('btnLogout');
 
+// (기존 DOM 요소들 - 생략하지 않고 포함)
 const titleInput = document.getElementById('titleInput');
 const editor = document.getElementById('mainEditor');
 const htmlEditor = document.getElementById('htmlSourceEditor');
@@ -78,73 +85,154 @@ const findInput = document.getElementById('findInput');
 const replaceInput = document.getElementById('replaceInput');
 
 // ============================================================
-// [3] 인증 및 클라우드 동기화 (충돌 방지 로직 추가)
+// [3] 인증 시스템 (개선된 UI/UX)
 // ============================================================
 
-// 로그인 상태 모니터링
+// 모드 전환 함수
+function toggleAuthMode() {
+    isLoginMode = !isLoginMode;
+    loginMessage.innerText = ""; // 에러 메시지 초기화
+    
+    if (isLoginMode) {
+        // 로그인 모드로 전환
+        authTitle.innerText = "로그인";
+        btnAuthAction.innerText = "로그인";
+        toggleText.innerText = "계정이 없으신가요?";
+        btnToggleMode.innerText = "회원가입";
+        signupFields.style.display = 'none';
+        signupConfirmField.style.display = 'none';
+    } else {
+        // 회원가입 모드로 전환
+        authTitle.innerText = "회원가입";
+        btnAuthAction.innerText = "가입하기";
+        toggleText.innerText = "이미 계정이 있으신가요?";
+        btnToggleMode.innerText = "로그인";
+        signupFields.style.display = 'block';
+        signupConfirmField.style.display = 'block';
+    }
+}
+
+// 전환 버튼 클릭 이벤트
+btnToggleMode.addEventListener('click', toggleAuthMode);
+
+// 실행 버튼 (로그인 or 가입) 클릭 이벤트
+btnAuthAction.addEventListener('click', async () => {
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    const nickname = nicknameInput.value.trim();
+    const confirmPassword = confirmPasswordInput.value;
+
+    if (!email || !password) {
+        loginMessage.innerText = "이메일과 비밀번호를 입력해주세요.";
+        return;
+    }
+
+    try {
+        if (isLoginMode) {
+            // [로그인 시도]
+            await signInWithEmailAndPassword(auth, email, password);
+            // 성공하면 onAuthStateChanged가 처리함
+        } else {
+            // [회원가입 시도]
+            // 1. 유효성 검사
+            if (password !== confirmPassword) {
+                loginMessage.innerText = "비밀번호가 일치하지 않습니다.";
+                return;
+            }
+            if (password.length < 6) {
+                loginMessage.innerText = "비밀번호는 6자리 이상이어야 합니다.";
+                return;
+            }
+            if (!nickname) {
+                loginMessage.innerText = "작가명(닉네임)을 입력해주세요.";
+                return;
+            }
+
+            // 2. 계정 생성
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
+
+            // 3. 프로필(닉네임) 업데이트
+            await updateProfile(user, { displayName: nickname });
+            
+            alert(`환영합니다, ${nickname} 작가님!`);
+            // 성공하면 onAuthStateChanged가 처리함
+        }
+    } catch (error) {
+        // 에러 코드별 친절한 메시지
+        let msg = "오류가 발생했습니다: " + error.code;
+        if (error.code === 'auth/email-already-in-use') msg = "이미 가입된 이메일입니다.";
+        else if (error.code === 'auth/invalid-email') msg = "이메일 형식이 올바르지 않습니다.";
+        else if (error.code === 'auth/wrong-password') msg = "비밀번호가 틀렸습니다.";
+        else if (error.code === 'auth/user-not-found') msg = "존재하지 않는 계정입니다.";
+        else if (error.code === 'auth/weak-password') msg = "비밀번호가 너무 약합니다.";
+        
+        loginMessage.innerText = msg;
+    }
+});
+
+// 로그인 상태 감지
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
         loginOverlay.style.display = 'none';
-        if(userInfoDisplay) userInfoDisplay.innerText = user.email.split('@')[0] + '님';
         
-        await syncFromCloud(user.uid); // 동기화 시작
-        init(); 
+        // 닉네임 표시 (없으면 이메일 앞부분)
+        const displayName = user.displayName || user.email.split('@')[0];
+        if(userInfoDisplay) userInfoDisplay.innerText = `${displayName}님 (Cloud On)`;
+        
+        await syncFromCloud(user.uid);
+        init();
     } else {
         currentUser = null;
         loginOverlay.style.display = 'flex';
-        if(userInfoDisplay) userInfoDisplay.innerText = '비로그인';
+        // 로그아웃 상태면 폼 초기화
+        emailInput.value = ''; passwordInput.value = ''; 
+        if(userInfoDisplay) userInfoDisplay.innerText = '';
     }
 });
 
-// [중요] 클라우드 동기화 (충돌 해결 로직 포함)
+// 로그아웃
+if(btnLogout) btnLogout.addEventListener('click', () => {
+    if(confirm("로그아웃 하시겠습니까?")) signOut(auth).then(() => location.reload());
+});
+
+// ============================================================
+// [4] 클라우드 동기화 (기존 로직 유지)
+// ============================================================
 async function syncFromCloud(uid) {
-    sidebarStatus.innerText = "클라우드 데이터 확인 중...";
+    sidebarStatus.innerText = "동기화 중...";
     try {
         const docRef = doc(db, "users", uid);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
             const serverData = docSnap.data();
-            
-            // 1. 시간 비교
             const serverTime = new Date(serverData.lastUpdated || 0).getTime();
             const localTimeStr = localStorage.getItem('localLastUpdated');
             const localTime = localTimeStr ? new Date(localTimeStr).getTime() : 0;
 
-            console.log(`로컬 시간: ${new Date(localTime).toLocaleString()} / 서버 시간: ${new Date(serverTime).toLocaleString()}`);
-
             if (localTime > serverTime) {
-                // [충돌 발생] 로컬이 더 최신임 -> 사용자에게 질문
-                const userChoice = confirm(
-                    `[⚠️ 데이터 충돌 감지]\n\n로컬 데이터가 클라우드보다 더 최신입니다!\n(아마도 오프라인 작업 후 로그인하신 것 같습니다)\n\n- 로컬 저장: ${new Date(localTime).toLocaleString()}\n- 서버 저장: ${new Date(serverTime).toLocaleString()}\n\n[확인]을 누르면 👉 로컬 데이터로 서버를 덮어씁니다. (로컬 유지)\n[취소]를 누르면 👉 서버 데이터를 가져옵니다. (로컬 삭제)`
-                );
-
-                if (userChoice) {
-                    // 사용자 선택: 로컬 유지 (서버에 업로드)
+                if (confirm("로컬 데이터가 더 최신입니다. 서버를 덮어쓸까요?\n(취소 시 서버 데이터를 가져옵니다)")) {
                     await saveToCloud();
-                    sidebarStatus.innerText = "로컬 버전으로 서버 동기화 완료";
+                    sidebarStatus.innerText = "서버 업데이트 완료";
                 } else {
-                    // 사용자 선택: 서버 데이터 가져오기
                     applyServerData(serverData);
-                    sidebarStatus.innerText = "서버 데이터 로드 완료";
+                    sidebarStatus.innerText = "서버 데이터 로드";
                 }
             } else {
-                // 서버가 더 최신이거나 같음 -> 그냥 가져옴 (안전)
                 applyServerData(serverData);
                 sidebarStatus.innerText = "동기화 완료";
             }
         } else {
-            // 서버에 데이터 없음 (신규) -> 업로드
             await saveToCloud();
         }
     } catch (e) {
-        console.error("동기화 오류:", e);
-        sidebarStatus.innerText = "동기화 실패 (오프라인)";
+        console.error(e);
+        sidebarStatus.innerText = "동기화 실패";
     }
 }
 
-// 서버 데이터를 로컬에 적용하는 함수
 function applyServerData(data) {
     if (data.library) {
         library = data.library;
@@ -154,14 +242,11 @@ function applyServerData(data) {
         settings = data.settings;
         localStorage.setItem('editorSettings', JSON.stringify(settings));
     }
-    // 서버 시간을 로컬 시간으로 맞춤 (동기화 완료)
-    localStorage.setItem('localLastUpdated', data.lastUpdated); 
+    localStorage.setItem('localLastUpdated', data.lastUpdated);
 }
 
-// 클라우드 저장
 async function saveToCloud() {
     if (!currentUser) return;
-    
     try {
         const now = new Date().toISOString();
         await setDoc(doc(db, "users", currentUser.uid), {
@@ -169,35 +254,14 @@ async function saveToCloud() {
             settings: settings,
             lastUpdated: now
         });
-        // 저장 성공 시 로컬 시간도 갱신하여 동기화 상태 유지
-        localStorage.setItem('localLastUpdated', now); 
-    } catch (e) {
-        console.error("클라우드 저장 실패:", e);
-    }
+        localStorage.setItem('localLastUpdated', now);
+    } catch (e) { console.error("저장 실패", e); }
 }
 
-// --- 인증 버튼 이벤트 ---
-if(btnSignup) btnSignup.addEventListener('click', () => {
-    const email = emailInput.value;
-    const password = passwordInput.value;
-    if(!email || !password) return alert("입력 정보 확인");
-    createUserWithEmailAndPassword(auth, email, password)
-        .then(() => alert("가입 성공!"))
-        .catch((e) => loginMessage.innerText = e.message);
-});
-
-if(btnLogin) btnLogin.addEventListener('click', () => {
-    signInWithEmailAndPassword(auth, emailInput.value, passwordInput.value)
-        .catch((e) => loginMessage.innerText = "로그인 실패");
-});
-
-if(btnLogout) btnLogout.addEventListener('click', () => {
-    if(confirm("로그아웃 하시겠습니까?")) signOut(auth).then(() => location.reload());
-});
-
 // ============================================================
-// [4] 히스토리 매니저 (Undo/Redo)
+// [5] 에디터 및 히스토리 로직 (기존과 동일)
 // ============================================================
+
 function recordHistory() {
     const content = isHtmlMode ? htmlEditor.value : editor.innerHTML;
     if (undoStack.length > 0 && undoStack[undoStack.length - 1] === content) return;
@@ -230,9 +294,6 @@ editor.addEventListener('beforeinput', () => {
     historyDebounceTimer = setTimeout(() => { historyDebounceTimer = null; }, 1000);
 });
 
-// ============================================================
-// [5] 에디터 핵심 로직
-// ============================================================
 function init() {
     applySettings();
     checkMigration();
@@ -242,6 +303,7 @@ function init() {
     enableDragAndDrop();
 }
 
+// Window export
 window.performSave = performSave;
 window.autoLineBreak = autoLineBreak;
 window.toggleMemoPanel = toggleMemoPanel;
@@ -336,7 +398,6 @@ function updateChaptersOrder() { const n = getCurrentNovel(); const newC = []; s
 function loadChapter(id) { const n = getCurrentNovel(); const c = n.chapters.find(ch => ch.id === id); if (c) { currentChapterId = id; titleInput.value = c.title; editor.innerHTML = c.content; htmlEditor.value = c.content; undoStack=[]; redoStack=[]; hasUnsavedChanges = false; updateUnsavedIndicator(); updateCount(); renderNovelSidebar(); } }
 function switchChapter(id) { performSave(); loadChapter(id); }
 
-// [핵심] 저장 로직 (시간 기록 추가)
 function performSave() {
     if (viewMode === 'library') return;
     const n = getCurrentNovel(); if (!n) return;
@@ -345,10 +406,9 @@ function performSave() {
     if (c) { c.title = titleInput.value; c.content = editor.innerHTML; }
     n.memo = memoTextarea.value;
     
-    saveLibrary(); // 로컬 저장 (시간 갱신됨)
-    
+    saveLibrary();
     if (currentUser) {
-        saveToCloud(); // 클라우드 저장
+        saveToCloud();
         lastSavedDisplay.innerText = "저장됨(Cloud)";
         lastSavedDisplay.style.color = '#4a90e2';
     } else {
@@ -361,7 +421,6 @@ function performSave() {
 }
 
 function saveLibrary() { 
-    // 로컬 저장 시 타임스탬프 갱신
     localStorage.setItem('novelLibrary', JSON.stringify(library)); 
     localStorage.setItem('localLastUpdated', new Date().toISOString());
 }

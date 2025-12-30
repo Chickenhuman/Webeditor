@@ -324,3 +324,76 @@ body {
     width: 100%; padding: 5px; border-radius: 4px; font-size: 12px; cursor: pointer;
 }
 .btn-logout:hover { background: var(--danger); color: white; }
+
+/* ... 기존 CSS ... */
+
+/* 로그인 화면 오버레이 */
+.login-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background-color: rgba(244, 246, 248, 0.95);
+    backdrop-filter: blur(5px);
+    z-index: 9999;
+    display: flex; justify-content: center; align-items: center;
+}
+
+.login-box {
+    background: white;
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    width: 320px;
+    text-align: center;
+    border: 1px solid var(--border);
+    transition: all 0.3s ease; /* 크기 변경 시 부드럽게 */
+}
+
+.login-input {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-size: 14px;
+}
+.login-input:focus { outline: 2px solid var(--primary); border-color: transparent; }
+
+.btn-login {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 15px;
+    margin-top: 10px;
+}
+.btn-login.primary { background: var(--primary); color: white; }
+.btn-login.primary:hover { background: var(--primary-hover); }
+
+.toggle-area {
+    margin-top: 20px;
+    font-size: 13px;
+    color: #666;
+}
+
+.btn-text {
+    background: none; border: none;
+    color: var(--primary); font-weight: bold;
+    cursor: pointer; text-decoration: underline;
+    font-size: 13px;
+}
+.btn-text:hover { color: var(--primary-hover); }
+
+.error-msg {
+    color: var(--danger);
+    font-size: 12px;
+    margin: 10px 0 0;
+    min-height: 16px;
+}
+
+.btn-logout {
+    background: none; border: 1px solid var(--danger); color: var(--danger);
+    width: 100%; padding: 5px; border-radius: 4px; font-size: 12px; cursor: pointer;
+}
+.btn-logout:hover { background: var(--danger); color: white; }

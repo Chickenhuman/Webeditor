@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Novel Editor - Login</title>
+    <title>Web Novel Editor - Auth</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
@@ -12,17 +12,30 @@
 
     <div id="loginOverlay" class="login-overlay">
         <div class="login-box">
-            <h2>웹소설 에디터 로그인</h2>
-            <p style="color:#666; font-size:13px; margin-bottom:20px;">안전한 파이어베이스 서버를 사용합니다.</p>
+            <h2 id="authTitle">로그인</h2>
+            <p style="color:#666; font-size:13px; margin-bottom:20px;">
+                안전한 파이어베이스 서버를 사용합니다.
+            </p>
             
+            <div id="signupFields" style="display:none;">
+                <input type="text" id="nicknameInput" placeholder="작가명 (닉네임)" class="login-input">
+            </div>
+
             <input type="email" id="emailInput" placeholder="이메일" class="login-input">
             <input type="password" id="passwordInput" placeholder="비밀번호 (6자리 이상)" class="login-input">
             
-            <div class="login-actions">
-                <button id="btnLogin" class="btn-login primary">로그인</button>
-                <button id="btnSignup" class="btn-login secondary">회원가입</button>
+            <div id="signupConfirmField" style="display:none;">
+                <input type="password" id="confirmPasswordInput" placeholder="비밀번호 확인" class="login-input">
             </div>
-            <p id="loginMessage" style="color:red; font-size:12px; margin-top:10px;"></p>
+            
+            <p id="loginMessage" class="error-msg"></p>
+
+            <button id="btnAuthAction" class="btn-login primary">로그인</button>
+            
+            <div class="toggle-area">
+                <span id="toggleText">계정이 없으신가요?</span>
+                <button id="btnToggleMode" class="btn-text">회원가입</button>
+            </div>
         </div>
     </div>
 
@@ -36,7 +49,7 @@
         </div>
         <ul class="sidebar-list" id="sidebarList"></ul>
         <div class="sidebar-footer">
-            <div id="userInfoDisplay" style="margin-bottom:5px; font-weight:bold; color:#4a90e2;"></div>
+            <div id="userInfoDisplay" style="margin-bottom:8px; font-weight:bold; color:#4a90e2; font-size:13px;"></div>
             <button id="btnLogout" class="btn-logout">로그아웃</button>
         </div>
     </aside>
@@ -71,18 +84,15 @@
                 <button onclick="window.toggleMemoPanel()" class="btn-tool icon-btn">📝</button>
                 <div class="v-divider"></div>
                 <button onclick="window.toggleHtmlMode()" class="btn-tool code-btn">&lt;/&gt;</button>
-                
                 <div class="export-group" style="display:flex; gap:2px;">
                     <button onclick="window.downloadAll('txt')" class="btn-tool">📄 TXT</button>
                     <button onclick="window.downloadAll('docx')" class="btn-tool" style="color:#2b579a; font-weight:bold;">📘 DOCX</button>
                 </div>
-
                 <button onclick="window.backupData()" class="btn-tool">☁️ 백업</button>
                 <button onclick="window.toggleDarkMode()" id="themeBtn" class="btn-tool icon-btn">🌙</button>
                 
                 <input type="file" id="fileInput" accept=".txt,.docx" style="display:none">
                 <input type="file" id="backupInput" accept=".json" style="display:none">
-                
                 <div class="more-menu">
                     <button onclick="document.getElementById('fileInput').click()" class="btn-tool icon-btn">📂</button>
                     <button onclick="document.getElementById('backupInput').click()" class="btn-tool icon-btn">♻️</button>
@@ -102,7 +112,14 @@
                 <div class="v-divider small"></div>
                 <div class="symbol-group">
                     <button class="btn-symbol" onclick="window.insertSymbol('「', '」')">「 」</button>
-                    </div>
+                    <button class="btn-symbol" onclick="window.insertSymbol('『', '』')">『 』</button>
+                    <button class="btn-symbol" onclick="window.insertSymbol('(', ')')">( )</button>
+                    <button class="btn-symbol" onclick="window.insertSymbol('[', ']')">[ ]</button>
+                    <button class="btn-symbol" onclick="window.insertSymbol('“', '”')">“ ”</button>
+                    <button class="btn-symbol" onclick="window.insertSymbol('─', '')">─</button>
+                    <button class="btn-symbol" onclick="window.insertSymbol('…', '')">…</button>
+                    <button class="btn-symbol" onclick="window.insertSymbol('★', '')">★</button>
+                </div>
             </div>
             <div class="editor-scroll-area">
                 <div id="mainEditor" class="editor" contenteditable="true" placeholder="여기에 소설을 작성하세요..."></div>
@@ -142,7 +159,7 @@
             <h4>📝 메모장</h4>
             <button onclick="window.toggleMemoPanel()" class="btn-close">×</button>
         </div>
-        <textarea id="memoTextarea" class="memo-content" placeholder="메모..."></textarea>
+        <textarea id="memoTextarea" class="memo-content" placeholder="이 소설의 설정, 아이디어를 적어두세요."></textarea>
     </aside>
 
     <div id="searchModal" class="search-modal" style="display:none;">
