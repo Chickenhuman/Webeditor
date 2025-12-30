@@ -1,4 +1,4 @@
-const APP_VERSION = "Ver 1.0.0";
+const APP_VERSION = "Ver 1.0.1";
 const LAST_UPDATED = "Updated 2025.12.30";
 
 // ============================================================
