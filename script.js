@@ -21,11 +21,10 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// [NEW] 아이디 로그인을 위한 가상 도메인 설정
 const DOMAIN = "@private.user";
 
 // ============================================================
-// [2] 전역 변수 및 상태
+// [2] 전역 변수
 // ============================================================
 let library = JSON.parse(localStorage.getItem('novelLibrary')) || [];
 let currentNovelId = null; 
@@ -40,13 +39,12 @@ let hasUnsavedChanges = false;
 let isHtmlMode = false;
 let viewMode = 'library';
 let currentUser = null;
-
 let isLoginMode = true; 
 
 // DOM Elements
 const loginOverlay = document.getElementById('loginOverlay');
 const authTitle = document.getElementById('authTitle');
-const emailInput = document.getElementById('emailInput'); // 실제로는 ID 입력창
+const emailInput = document.getElementById('emailInput');
 const passwordInput = document.getElementById('passwordInput');
 const confirmPasswordInput = document.getElementById('confirmPasswordInput');
 const nicknameInput = document.getElementById('nicknameInput');
@@ -58,6 +56,7 @@ const signupFields = document.getElementById('signupFields');
 const signupConfirmField = document.getElementById('signupConfirmField');
 const userInfoDisplay = document.getElementById('userInfoDisplay');
 const btnLogout = document.getElementById('btnLogout');
+const btnGuest = document.getElementById('btnGuest'); // [NEW] 게스트 버튼
 
 const titleInput = document.getElementById('titleInput');
 const editor = document.getElementById('mainEditor');
@@ -85,13 +84,12 @@ const findInput = document.getElementById('findInput');
 const replaceInput = document.getElementById('replaceInput');
 
 // ============================================================
-// [3] 인증 시스템 (아이디 로그인 로직 적용)
+// [3] 인증 시스템
 // ============================================================
 
 function toggleAuthMode() {
     isLoginMode = !isLoginMode;
     loginMessage.innerText = "";
-    
     if (isLoginMode) {
         authTitle.innerText = "로그인";
         btnAuthAction.innerText = "로그인";
@@ -112,7 +110,7 @@ function toggleAuthMode() {
 btnToggleMode.addEventListener('click', toggleAuthMode);
 
 btnAuthAction.addEventListener('click', async () => {
-    const id = emailInput.value.trim(); // 사용자가 입력한 아이디
+    const id = emailInput.value.trim();
     const password = passwordInput.value;
     const nickname = nicknameInput.value.trim();
     const confirmPassword = confirmPasswordInput.value;
@@ -121,58 +119,53 @@ btnAuthAction.addEventListener('click', async () => {
         loginMessage.innerText = "아이디와 비밀번호를 입력해주세요.";
         return;
     }
-
-    // [NEW] 아이디에 가짜 도메인을 붙여 이메일 형식으로 만듦
     const email = id + DOMAIN; 
 
     try {
         if (isLoginMode) {
             await signInWithEmailAndPassword(auth, email, password);
         } else {
-            if (password !== confirmPassword) {
-                loginMessage.innerText = "비밀번호가 일치하지 않습니다.";
-                return;
-            }
-            if (password.length < 6) {
-                loginMessage.innerText = "비밀번호는 6자리 이상이어야 합니다.";
-                return;
-            }
-            if (!nickname) {
-                loginMessage.innerText = "작가명(닉네임)을 입력해주세요.";
-                return;
-            }
+            if (password !== confirmPassword) { loginMessage.innerText = "비밀번호가 일치하지 않습니다."; return; }
+            if (password.length < 6) { loginMessage.innerText = "비밀번호는 6자리 이상이어야 합니다."; return; }
+            if (!nickname) { loginMessage.innerText = "작가명(닉네임)을 입력해주세요."; return; }
 
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            const user = userCredential.user;
-            await updateProfile(user, { displayName: nickname });
-            
+            await updateProfile(userCredential.user, { displayName: nickname });
             alert(`환영합니다, ${nickname} 작가님!`);
         }
     } catch (error) {
-        let msg = "오류가 발생했습니다: " + error.code;
-        if (error.code === 'auth/email-already-in-use') msg = "이미 사용 중인 아이디입니다."; // 문구 변경
+        let msg = "오류: " + error.code;
+        if (error.code === 'auth/email-already-in-use') msg = "이미 사용 중인 아이디입니다.";
         else if (error.code === 'auth/invalid-email') msg = "아이디 형식이 올바르지 않습니다.";
         else if (error.code === 'auth/wrong-password') msg = "비밀번호가 틀렸습니다.";
         else if (error.code === 'auth/user-not-found') msg = "존재하지 않는 아이디입니다.";
         else if (error.code === 'auth/weak-password') msg = "비밀번호가 너무 약합니다.";
-        
         loginMessage.innerText = msg;
     }
 });
 
-// 로그인 상태 감지
+// [NEW] 비로그인(게스트) 시작 버튼
+if (btnGuest) {
+    btnGuest.addEventListener('click', () => {
+        loginOverlay.style.display = 'none';
+        if (userInfoDisplay) userInfoDisplay.innerText = '비로그인 (로컬 모드)';
+        currentUser = null;
+        init(); // 로컬 데이터로 에디터 시작
+    });
+}
+
+// 로그인 상태 모니터링
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
         loginOverlay.style.display = 'none';
-        
         const displayName = user.displayName || user.email.split('@')[0];
         if(userInfoDisplay) userInfoDisplay.innerText = `${displayName}님 (Cloud On)`;
-        
         await syncFromCloud(user.uid);
         init();
     } else {
         currentUser = null;
+        // 로그아웃 상태일 때만 로그인창 표시 (게스트 모드에서 새로고침 시 로그인창 뜨는 게 정상)
         loginOverlay.style.display = 'flex';
         emailInput.value = ''; passwordInput.value = ''; 
         if(userInfoDisplay) userInfoDisplay.innerText = '';
@@ -186,7 +179,7 @@ if(btnLogout) btnLogout.addEventListener('click', () => {
 // ... (이하 나머지 코드는 기존과 완벽히 동일) ...
 
 // ============================================================
-// [4] 클라우드 동기화 (기존 로직 유지)
+// [4] 클라우드 동기화
 // ============================================================
 async function syncFromCloud(uid) {
     sidebarStatus.innerText = "동기화 중...";
@@ -247,7 +240,7 @@ async function saveToCloud() {
 }
 
 // ============================================================
-// [5] 에디터 및 히스토리 로직 (기존과 동일)
+// [5] 에디터 및 히스토리 로직
 // ============================================================
 
 function recordHistory() {
@@ -291,7 +284,6 @@ function init() {
     enableDragAndDrop();
 }
 
-// Window export
 window.performSave = performSave;
 window.autoLineBreak = autoLineBreak;
 window.toggleMemoPanel = toggleMemoPanel;

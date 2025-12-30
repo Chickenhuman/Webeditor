@@ -397,3 +397,44 @@ body {
     width: 100%; padding: 5px; border-radius: 4px; font-size: 12px; cursor: pointer;
 }
 .btn-logout:hover { background: var(--danger); color: white; }
+
+/* ... 기존 CSS 아래에 추가 ... */
+
+/* 비로그인 이용 버튼 영역 */
+.guest-area {
+    margin-top: 25px;
+}
+
+.divider {
+    display: flex;
+    align-items: center;
+    color: #ccc;
+    font-size: 12px;
+    margin-bottom: 15px;
+}
+.divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #eee;
+}
+.divider span {
+    padding: 0 10px;
+}
+
+.btn-guest {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    color: #555;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-guest:hover {
+    background: #f8f9fa;
+    border-color: #ccc;
+    color: #333;
+}
