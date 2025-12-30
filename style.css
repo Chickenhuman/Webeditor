@@ -438,3 +438,75 @@ body {
     border-color: #ccc;
     color: #333;
 }
+/* ============================
+   [NEW] 반응형 (모바일) 스타일
+   ============================ */
+
+/* 기본적으로 모바일 버튼은 숨김 */
+.mobile-only { display: none; }
+.mobile-overlay { display: none; }
+
+/* 화면 너비가 768px 이하(태블릿/모바일)일 때 적용 */
+@media (max-width: 768px) {
+
+    /* 1. 사이드바: 평소엔 숨기고(.open 붙으면 나옴) */
+    .sidebar {
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        width: 280px;
+        transform: translateX(-100%); /* 왼쪽으로 숨김 */
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 2000; /* 오버레이보다 위 */
+        border-right: 1px solid var(--border);
+    }
+    .sidebar.open { transform: translateX(0); } /* 나오게 함 */
+
+    /* 2. 배경 오버레이 (사이드바 열렸을 때 뒤에 깔리는 어두운 막) */
+    .mobile-overlay {
+        display: block;
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1500;
+        opacity: 0; pointer-events: none; /* 평소엔 클릭 불가 */
+        transition: opacity 0.3s;
+    }
+    .mobile-overlay.active { opacity: 1; pointer-events: all; }
+
+    /* 3. 메인 영역 & 툴바 */
+    .mobile-only { display: inline-flex; justify-content: center; align-items: center; font-size: 18px; border:none; background:transparent;}
+    
+    .top-bar {
+        padding: 0 10px;
+        overflow-x: auto; /* 버튼 많으면 좌우 스크롤 */
+        white-space: nowrap; /* 줄바꿈 방지 */
+        -webkit-overflow-scrolling: touch; /* 부드러운 스크롤 */
+    }
+    
+    /* 스크롤바 숨기기 (깔끔하게) */
+    .top-bar::-webkit-scrollbar { display: none; }
+
+    /* 툴바 그룹 간격 조정 */
+    .toolbar-group { margin-right: 10px; }
+    
+    /* 4. 에디터 영역: 좁은 화면에 맞게 여백 축소 */
+    .editor {
+        padding: 20px 5% 80px; /* 좌우 여백 10% -> 5% */
+        font-size: 15px; /* 글자 크기 약간 조절 */
+    }
+    .chapter-title-input {
+        padding: 15px 5% 5px;
+        font-size: 20px;
+    }
+    .format-toolbar {
+        padding: 5px 10px;
+        overflow-x: auto;
+    }
+
+    /* 5. 기타 UI 조정 */
+    .memo-panel { width: 85%; } /* 메모장도 화면 꽉 차게 */
+    .login-box { width: 90%; padding: 25px; } /* 로그인창 좌우 여백 확보 */
+    
+    /* 모바일에서 불필요하거나 너무 긴 요소 숨기기/조정 */
+    #lastSavedDisplay { display: none; } /* 공간 부족하면 '준비됨' 글자 숨김 */
+    .count-info span { font-size: 11px; }
+}

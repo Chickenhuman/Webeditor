@@ -58,6 +58,11 @@ const userInfoDisplay = document.getElementById('userInfoDisplay');
 const btnLogout = document.getElementById('btnLogout');
 const btnGuest = document.getElementById('btnGuest');
 
+// [NEW] 모바일 메뉴 관련 요소
+const btnMobileMenu = document.getElementById('btnMobileMenu');
+const sidebar = document.querySelector('.sidebar'); // 클래스로 찾기
+const mobileOverlay = document.getElementById('mobileOverlay');
+
 // 안내창 요소
 const btnShowInfo = document.getElementById('btnShowInfo');
 const infoModal = document.getElementById('infoModal');
@@ -296,6 +301,34 @@ function init() {
     startAutoSaveTimer();
     enableDragAndDrop();
 }
+
+
+// [NEW] 모바일 메뉴 토글 로직
+if (btnMobileMenu) {
+    btnMobileMenu.addEventListener('click', () => {
+        sidebar.classList.add('open');
+        mobileOverlay.classList.add('active');
+    });
+}
+
+// 오버레이(배경) 클릭 시 사이드바 닫기
+if (mobileOverlay) {
+    mobileOverlay.addEventListener('click', () => {
+        sidebar.classList.remove('open');
+        mobileOverlay.classList.remove('active');
+    });
+}
+
+// 소설이나 챕터 선택 시 모바일 사이드바 자동으로 닫기
+// (기존 sidebarListEl 클릭 이벤트에 로직이 포함되어야 함. 
+//  가장 쉬운 방법은 전역 이벤트로 처리하는 것입니다.)
+sidebarListEl.addEventListener('click', (e) => {
+    // 리스트 아이템을 클릭했을 때만 닫힘 (모바일 환경 체크)
+    if (window.innerWidth <= 768 && (e.target.closest('.novel-item') || e.target.closest('.chapter-item'))) {
+        sidebar.classList.remove('open');
+        mobileOverlay.classList.remove('active');
+    }
+});
 
 // Window export
 window.performSave = performSave;
