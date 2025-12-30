@@ -58,12 +58,14 @@ const userInfoDisplay = document.getElementById('userInfoDisplay');
 const btnLogout = document.getElementById('btnLogout');
 const btnGuest = document.getElementById('btnGuest');
 
-// [NEW] 안내창 관련 요소
+// 안내창 요소
 const btnShowInfo = document.getElementById('btnShowInfo');
 const infoModal = document.getElementById('infoModal');
 const btnCloseInfo = document.getElementById('btnCloseInfo');
 
+// 에디터 요소
 const titleInput = document.getElementById('titleInput');
+const editorWrapper = document.getElementById('editorWrapper'); // [NEW] 에디터 전체 래퍼
 const editor = document.getElementById('mainEditor');
 const htmlEditor = document.getElementById('htmlSourceEditor');
 const sidebarListEl = document.getElementById('sidebarList');
@@ -149,23 +151,18 @@ btnAuthAction.addEventListener('click', async () => {
     }
 });
 
-// 비로그인 시작 버튼
-btnGuest.addEventListener('click', () => {
-    loginOverlay.style.display = 'none';
-    if (userInfoDisplay) userInfoDisplay.innerText = '비로그인 (로컬 모드)';
-    currentUser = null;
-    init(); 
-});
+if (btnGuest) {
+    btnGuest.addEventListener('click', () => {
+        loginOverlay.style.display = 'none';
+        if (userInfoDisplay) userInfoDisplay.innerText = '비로그인 (로컬 모드)';
+        currentUser = null;
+        init(); 
+    });
+}
 
-// [NEW] 안내창 열기/닫기
-btnShowInfo.addEventListener('click', () => {
-    infoModal.style.display = 'flex';
-});
-btnCloseInfo.addEventListener('click', () => {
-    infoModal.style.display = 'none';
-});
+if(btnShowInfo) btnShowInfo.addEventListener('click', () => { infoModal.style.display = 'flex'; });
+if(btnCloseInfo) btnCloseInfo.addEventListener('click', () => { infoModal.style.display = 'none'; });
 
-// 로그인 상태 모니터링
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
@@ -186,13 +183,11 @@ if(btnLogout) btnLogout.addEventListener('click', () => {
     if(confirm("로그아웃 하시겠습니까?")) signOut(auth).then(() => location.reload());
 });
 
-// ... (이하 나머지 코드는 기존과 완벽히 동일) ...
-
 // ============================================================
 // [4] 클라우드 동기화
 // ============================================================
 async function syncFromCloud(uid) {
-    sidebarStatus.innerText = "동기화 중...";
+    if(sidebarStatus) sidebarStatus.innerText = "동기화 중...";
     try {
         const docRef = doc(db, "users", uid);
         const docSnap = await getDoc(docRef);
@@ -206,21 +201,21 @@ async function syncFromCloud(uid) {
             if (localTime > serverTime) {
                 if (confirm("로컬 데이터가 더 최신입니다. 서버를 덮어쓸까요?\n(취소 시 서버 데이터를 가져옵니다)")) {
                     await saveToCloud();
-                    sidebarStatus.innerText = "서버 업데이트 완료";
+                    if(sidebarStatus) sidebarStatus.innerText = "서버 업데이트 완료";
                 } else {
                     applyServerData(serverData);
-                    sidebarStatus.innerText = "서버 데이터 로드";
+                    if(sidebarStatus) sidebarStatus.innerText = "서버 데이터 로드";
                 }
             } else {
                 applyServerData(serverData);
-                sidebarStatus.innerText = "동기화 완료";
+                if(sidebarStatus) sidebarStatus.innerText = "동기화 완료";
             }
         } else {
             await saveToCloud();
         }
     } catch (e) {
         console.error(e);
-        sidebarStatus.innerText = "동기화 실패";
+        if(sidebarStatus) sidebarStatus.innerText = "동기화 실패";
     }
 }
 
@@ -285,11 +280,19 @@ editor.addEventListener('beforeinput', () => {
     historyDebounceTimer = setTimeout(() => { historyDebounceTimer = null; }, 1000);
 });
 
+// [중요] 초기화 로직 수정
 function init() {
     applySettings();
     checkMigration();
-    if (library.length === 0) createNovel("새 소설");
-    renderLibrary();
+    
+    // 소설이 없으면 생성
+    if (library.length === 0) {
+        createNovel("새 소설");
+    } else {
+        // [NEW] 소설이 있으면 가장 최근(첫번째) 소설 자동 열기
+        openNovel(library[0].id);
+    }
+    
     startAutoSaveTimer();
     enableDragAndDrop();
 }
@@ -321,13 +324,19 @@ function checkMigration() {
     }
 }
 
+// [수정됨] 서재 모드에서는 에디터 숨김
 function renderLibrary() {
     viewMode = 'library'; currentNovelId = null;
     sidebarTitle.innerText = "내 서재";
     sidebarTitle.ondblclick = null; sidebarTitle.style.cursor = "default"; sidebarTitle.title = "";
     sidebarActionBtn.title = "새 소설"; sidebarActionBtn.onclick = createNovelPrompt;
-    sidebarStatus.innerText = `총 ${library.length}개`;
+    if(sidebarStatus) sidebarStatus.innerText = `총 ${library.length}개`;
     libraryHomeBtn.style.display = 'none'; 
+    
+    // [NEW] 에디터 숨기기 (서재 모드에서 작성 방지)
+    editorWrapper.style.display = 'none';
+    // 만약 빈 공간에 메시지를 띄우고 싶다면 여기에 추가 가능
+
     sidebarListEl.innerHTML = '';
     library.forEach(n => {
         const li = document.createElement('li'); li.className = 'list-item novel-item';
@@ -340,11 +349,16 @@ function renderLibrary() {
 function createNovelPrompt() { const t = prompt("제목:", "새 작품"); if (t) createNovel(t); }
 function createNovel(t) { library.push({ id: Date.now(), title: t, chapters: [{ id: Date.now(), title: '1화', content: '' }], memo: '' }); saveLibrary(); renderLibrary(); }
 function deleteNovel(id) { if(!confirm("삭제?")) return; library = library.filter(n => n.id !== id); saveLibrary(); renderLibrary(); }
+
 function openNovel(id) {
     const n = library.find(n => n.id === id); if (!n) return;
     currentNovelId = id; memoTextarea.value = n.memo || '';
     if (n.chapters.length > 0) currentChapterId = n.chapters[0].id;
     else { const c = { id: Date.now(), title: '1화', content: '' }; n.chapters.push(c); currentChapterId = c.id; }
+    
+    // [NEW] 에디터 다시 보이기
+    editorWrapper.style.display = 'flex';
+    
     renderNovelSidebar(); loadChapter(currentChapterId);
     undoStack=[]; redoStack=[];
 }
@@ -361,7 +375,8 @@ function renderNovelSidebar() {
         inp.onblur = finish; inp.onkeydown = (e) => { if(e.key==='Enter') finish(); }; inp.onclick = e => e.stopPropagation();
     };
     sidebarActionBtn.title = "챕터 추가"; sidebarActionBtn.onclick = addNewChapter;
-    sidebarStatus.innerText = "드래그 정렬 가능"; libraryHomeBtn.style.display = 'inline-block';
+    if(sidebarStatus) sidebarStatus.innerText = "드래그 정렬 가능"; 
+    libraryHomeBtn.style.display = 'inline-block';
     libraryHomeBtn.onclick = () => { performSave(); renderLibrary(); };
     sidebarListEl.innerHTML = '';
     n.chapters.forEach(c => {
@@ -389,15 +404,23 @@ function updateChaptersOrder() { const n = getCurrentNovel(); const newC = []; s
 function loadChapter(id) { const n = getCurrentNovel(); const c = n.chapters.find(ch => ch.id === id); if (c) { currentChapterId = id; titleInput.value = c.title; editor.innerHTML = c.content; htmlEditor.value = c.content; undoStack=[]; redoStack=[]; hasUnsavedChanges = false; updateUnsavedIndicator(); updateCount(); renderNovelSidebar(); } }
 function switchChapter(id) { performSave(); loadChapter(id); }
 
+// [수정됨] 저장 로직 (메시지 덮어쓰기 버그 수정)
 function performSave() {
     if (viewMode === 'library') return;
-    const n = getCurrentNovel(); if (!n) return;
+    const n = getCurrentNovel(); 
+    // [안전장치] 소설이 없으면 저장 중단
+    if (!n) {
+        console.warn("저장할 소설이 선택되지 않았습니다.");
+        return; 
+    }
+    
     if (isHtmlMode) editor.innerHTML = htmlEditor.value;
     const c = n.chapters.find(ch => ch.id === currentChapterId);
     if (c) { c.title = titleInput.value; c.content = editor.innerHTML; }
     n.memo = memoTextarea.value;
     
     saveLibrary();
+    
     if (currentUser) {
         saveToCloud();
         lastSavedDisplay.innerText = "저장됨(Cloud)";
@@ -406,8 +429,12 @@ function performSave() {
         lastSavedDisplay.innerText = "저장됨(Local)";
         lastSavedDisplay.style.color = '#2ecc71';
     }
+    
     hasUnsavedChanges = false;
-    updateUnsavedIndicator();
+    // [중요] updateUnsavedIndicator() 호출 제거
+    // (이 함수가 '준비됨'으로 텍스트를 즉시 덮어쓰기 때문)
+    unsavedDot.style.display = 'none'; // 점만 끈다
+    
     setTimeout(() => { lastSavedDisplay.style.color = '#aaa'; }, 2000);
 }
 
