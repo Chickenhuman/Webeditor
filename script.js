@@ -56,7 +56,12 @@ const signupFields = document.getElementById('signupFields');
 const signupConfirmField = document.getElementById('signupConfirmField');
 const userInfoDisplay = document.getElementById('userInfoDisplay');
 const btnLogout = document.getElementById('btnLogout');
-const btnGuest = document.getElementById('btnGuest'); // [NEW] 게스트 버튼
+const btnGuest = document.getElementById('btnGuest');
+
+// [NEW] 안내창 관련 요소
+const btnShowInfo = document.getElementById('btnShowInfo');
+const infoModal = document.getElementById('infoModal');
+const btnCloseInfo = document.getElementById('btnCloseInfo');
 
 const titleInput = document.getElementById('titleInput');
 const editor = document.getElementById('mainEditor');
@@ -144,15 +149,21 @@ btnAuthAction.addEventListener('click', async () => {
     }
 });
 
-// [NEW] 비로그인(게스트) 시작 버튼
-if (btnGuest) {
-    btnGuest.addEventListener('click', () => {
-        loginOverlay.style.display = 'none';
-        if (userInfoDisplay) userInfoDisplay.innerText = '비로그인 (로컬 모드)';
-        currentUser = null;
-        init(); // 로컬 데이터로 에디터 시작
-    });
-}
+// 비로그인 시작 버튼
+btnGuest.addEventListener('click', () => {
+    loginOverlay.style.display = 'none';
+    if (userInfoDisplay) userInfoDisplay.innerText = '비로그인 (로컬 모드)';
+    currentUser = null;
+    init(); 
+});
+
+// [NEW] 안내창 열기/닫기
+btnShowInfo.addEventListener('click', () => {
+    infoModal.style.display = 'flex';
+});
+btnCloseInfo.addEventListener('click', () => {
+    infoModal.style.display = 'none';
+});
 
 // 로그인 상태 모니터링
 onAuthStateChanged(auth, async (user) => {
@@ -165,7 +176,6 @@ onAuthStateChanged(auth, async (user) => {
         init();
     } else {
         currentUser = null;
-        // 로그아웃 상태일 때만 로그인창 표시 (게스트 모드에서 새로고침 시 로그인창 뜨는 게 정상)
         loginOverlay.style.display = 'flex';
         emailInput.value = ''; passwordInput.value = ''; 
         if(userInfoDisplay) userInfoDisplay.innerText = '';
@@ -284,6 +294,7 @@ function init() {
     enableDragAndDrop();
 }
 
+// Window export
 window.performSave = performSave;
 window.autoLineBreak = autoLineBreak;
 window.toggleMemoPanel = toggleMemoPanel;
