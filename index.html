@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Novel Editor - Login</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
+</head>
+<body>
+
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-box">
+            <h2>웹소설 에디터 로그인</h2>
+            <p style="color:#666; font-size:13px; margin-bottom:20px;">안전한 파이어베이스 서버를 사용합니다.</p>
+            
+            <input type="email" id="emailInput" placeholder="이메일" class="login-input">
+            <input type="password" id="passwordInput" placeholder="비밀번호 (6자리 이상)" class="login-input">
+            
+            <div class="login-actions">
+                <button id="btnLogin" class="btn-login primary">로그인</button>
+                <button id="btnSignup" class="btn-login secondary">회원가입</button>
+            </div>
+            <p id="loginMessage" style="color:red; font-size:12px; margin-top:10px;"></p>
+        </div>
+    </div>
+
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="header-left">
+                <button id="libraryHomeBtn" class="btn-home" title="내 서재로 이동">🏠</button>
+                <h3 id="sidebarTitle">내 서재</h3>
+            </div>
+            <button class="add-btn" id="sidebarActionBtn" title="추가">+</button>
+        </div>
+        <ul class="sidebar-list" id="sidebarList"></ul>
+        <div class="sidebar-footer">
+            <div id="userInfoDisplay" style="margin-bottom:5px; font-weight:bold; color:#4a90e2;"></div>
+            <button id="btnLogout" class="btn-logout">로그아웃</button>
+        </div>
+    </aside>
+
+    <main class="main-area">
+        <div class="top-bar">
+            <div class="toolbar-group">
+                <button onclick="window.performSave()" class="btn-tool primary" title="즉시 저장">💾 저장</button>
+                <div class="autosave-control">
+                    <span class="label">자동</span>
+                    <input type="number" id="autoSaveIntervalInput" value="3" min="1">
+                    <span class="unit">분</span>
+                </div>
+                <div class="save-status">
+                    <span class="unsaved-dot" id="unsavedDot"></span>
+                    <span id="lastSavedDisplay" class="status-text">준비됨</span>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <select id="lineBreakOption" class="dropdown">
+                    <option value="1">엔터 1번</option>
+                    <option value="2">엔터 2번</option>
+                </select>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="ignoreEllipsis" checked> (...)무시
+                </label>
+                <button onclick="window.autoLineBreak()" class="btn-tool">↵ 실행</button>
+            </div>
+
+            <div class="toolbar-group right">
+                <button onclick="window.toggleMemoPanel()" class="btn-tool icon-btn">📝</button>
+                <div class="v-divider"></div>
+                <button onclick="window.toggleHtmlMode()" class="btn-tool code-btn">&lt;/&gt;</button>
+                
+                <div class="export-group" style="display:flex; gap:2px;">
+                    <button onclick="window.downloadAll('txt')" class="btn-tool">📄 TXT</button>
+                    <button onclick="window.downloadAll('docx')" class="btn-tool" style="color:#2b579a; font-weight:bold;">📘 DOCX</button>
+                </div>
+
+                <button onclick="window.backupData()" class="btn-tool">☁️ 백업</button>
+                <button onclick="window.toggleDarkMode()" id="themeBtn" class="btn-tool icon-btn">🌙</button>
+                
+                <input type="file" id="fileInput" accept=".txt,.docx" style="display:none">
+                <input type="file" id="backupInput" accept=".json" style="display:none">
+                
+                <div class="more-menu">
+                    <button onclick="document.getElementById('fileInput').click()" class="btn-tool icon-btn">📂</button>
+                    <button onclick="document.getElementById('backupInput').click()" class="btn-tool icon-btn">♻️</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="editor-wrapper" id="editorWrapper">
+            <input type="text" id="titleInput" class="chapter-title-input" placeholder="제목을 입력하세요">
+            <div class="format-toolbar" id="formatToolbar">
+                <div class="format-group">
+                    <button class="btn-format" onclick="window.execCmd('bold')"><b>B</b></button>
+                    <button class="btn-format" onclick="window.execCmd('italic')"><i>I</i></button>
+                    <button class="btn-format" onclick="window.execCmd('underline')"><u>U</u></button>
+                    <button class="btn-format" onclick="window.execCmd('strikeThrough')"><s>S</s></button>
+                </div>
+                <div class="v-divider small"></div>
+                <div class="symbol-group">
+                    <button class="btn-symbol" onclick="window.insertSymbol('「', '」')">「 」</button>
+                    </div>
+            </div>
+            <div class="editor-scroll-area">
+                <div id="mainEditor" class="editor" contenteditable="true" placeholder="여기에 소설을 작성하세요..."></div>
+                <textarea id="htmlSourceEditor" class="html-editor" style="display:none;"></textarea>
+            </div>
+        </div>
+
+        <div class="bottom-panel">
+            <div class="goal-container">
+                <div class="goal-info">
+                    <select id="goalTypeSelect" class="goal-select">
+                        <option value="space">공포</option>
+                        <option value="nospace">공제</option>
+                    </select>
+                    <span class="label">목표:</span>
+                    <input type="number" id="targetCountInput" value="5000" step="500" class="goal-input">
+                    <span id="goalPercentage" class="percent-text">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div id="goalProgressBar" class="progress-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+            <div class="status-bar">
+                <button onclick="window.toggleSearchModal()" class="btn-status-tool">🔍 찾기/바꾸기</button>
+                <span id="modeDisplay" class="mode-text"></span>
+                <div class="count-info">
+                    <span>공백 포함 <strong id="charCount">0</strong>자</span>
+                    <span class="divider">|</span>
+                    <span>공백 제외 <strong id="charCountNoSpace">0</strong>자</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <aside id="memoPanel" class="memo-panel">
+        <div class="panel-header">
+            <h4>📝 메모장</h4>
+            <button onclick="window.toggleMemoPanel()" class="btn-close">×</button>
+        </div>
+        <textarea id="memoTextarea" class="memo-content" placeholder="메모..."></textarea>
+    </aside>
+
+    <div id="searchModal" class="search-modal" style="display:none;">
+        <div class="modal-header">
+            <span>찾기 및 바꾸기</span>
+            <button onclick="window.toggleSearchModal()" class="btn-close-modal">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="findInput" placeholder="찾을 내용">
+            <input type="text" id="replaceInput" placeholder="바꿀 내용">
+            <button onclick="window.findAndReplace()" class="btn-replace">모두 바꾸기</button>
+        </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
