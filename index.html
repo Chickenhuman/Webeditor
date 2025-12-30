@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Novel Editor - Auth</title>
+    <title>Web Novel Editor - Secure Auth</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
@@ -14,19 +14,25 @@
         <div class="login-box">
             <h2 id="authTitle">로그인</h2>
             <p style="color:#666; font-size:13px; margin-bottom:20px;">
-                안전한 파이어베이스 서버를 사용합니다.
+                웹소설 에디터에 오신 것을 환영합니다.
             </p>
             
             <div id="signupFields" style="display:none;">
                 <input type="text" id="nicknameInput" placeholder="작가명 (닉네임)" class="login-input">
             </div>
 
-            <input type="email" id="emailInput" placeholder="이메일" class="login-input">
+            <input type="text" id="emailInput" placeholder="아이디 (영문/숫자)" class="login-input">
+            
             <input type="password" id="passwordInput" placeholder="비밀번호 (6자리 이상)" class="login-input">
             
             <div id="signupConfirmField" style="display:none;">
                 <input type="password" id="confirmPasswordInput" placeholder="비밀번호 확인" class="login-input">
             </div>
+            
+            <p style="font-size:11px; color:#888; margin-top:5px; margin-bottom:15px; line-height:1.4;">
+                🔒 비밀번호는 안전하게 <strong>암호화되어 저장</strong>되며,<br>
+                관리자를 포함한 그 누구도 알 수 없습니다.
+            </p>
             
             <p id="loginMessage" class="error-msg"></p>
 

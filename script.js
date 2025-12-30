@@ -3,7 +3,6 @@
 // ============================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js";
-// [NEW] updateProfile 추가 (닉네임 설정용)
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
@@ -22,6 +21,9 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// [NEW] 아이디 로그인을 위한 가상 도메인 설정
+const DOMAIN = "@private.user";
+
 // ============================================================
 // [2] 전역 변수 및 상태
 // ============================================================
@@ -39,13 +41,12 @@ let isHtmlMode = false;
 let viewMode = 'library';
 let currentUser = null;
 
-// [NEW] 로그인/회원가입 모드 상태 (true: 로그인, false: 회원가입)
 let isLoginMode = true; 
 
 // DOM Elements
 const loginOverlay = document.getElementById('loginOverlay');
 const authTitle = document.getElementById('authTitle');
-const emailInput = document.getElementById('emailInput');
+const emailInput = document.getElementById('emailInput'); // 실제로는 ID 입력창
 const passwordInput = document.getElementById('passwordInput');
 const confirmPasswordInput = document.getElementById('confirmPasswordInput');
 const nicknameInput = document.getElementById('nicknameInput');
@@ -58,7 +59,6 @@ const signupConfirmField = document.getElementById('signupConfirmField');
 const userInfoDisplay = document.getElementById('userInfoDisplay');
 const btnLogout = document.getElementById('btnLogout');
 
-// (기존 DOM 요소들 - 생략하지 않고 포함)
 const titleInput = document.getElementById('titleInput');
 const editor = document.getElementById('mainEditor');
 const htmlEditor = document.getElementById('htmlSourceEditor');
@@ -85,16 +85,14 @@ const findInput = document.getElementById('findInput');
 const replaceInput = document.getElementById('replaceInput');
 
 // ============================================================
-// [3] 인증 시스템 (개선된 UI/UX)
+// [3] 인증 시스템 (아이디 로그인 로직 적용)
 // ============================================================
 
-// 모드 전환 함수
 function toggleAuthMode() {
     isLoginMode = !isLoginMode;
-    loginMessage.innerText = ""; // 에러 메시지 초기화
+    loginMessage.innerText = "";
     
     if (isLoginMode) {
-        // 로그인 모드로 전환
         authTitle.innerText = "로그인";
         btnAuthAction.innerText = "로그인";
         toggleText.innerText = "계정이 없으신가요?";
@@ -102,7 +100,6 @@ function toggleAuthMode() {
         signupFields.style.display = 'none';
         signupConfirmField.style.display = 'none';
     } else {
-        // 회원가입 모드로 전환
         authTitle.innerText = "회원가입";
         btnAuthAction.innerText = "가입하기";
         toggleText.innerText = "이미 계정이 있으신가요?";
@@ -112,29 +109,26 @@ function toggleAuthMode() {
     }
 }
 
-// 전환 버튼 클릭 이벤트
 btnToggleMode.addEventListener('click', toggleAuthMode);
 
-// 실행 버튼 (로그인 or 가입) 클릭 이벤트
 btnAuthAction.addEventListener('click', async () => {
-    const email = emailInput.value.trim();
+    const id = emailInput.value.trim(); // 사용자가 입력한 아이디
     const password = passwordInput.value;
     const nickname = nicknameInput.value.trim();
     const confirmPassword = confirmPasswordInput.value;
 
-    if (!email || !password) {
-        loginMessage.innerText = "이메일과 비밀번호를 입력해주세요.";
+    if (!id || !password) {
+        loginMessage.innerText = "아이디와 비밀번호를 입력해주세요.";
         return;
     }
 
+    // [NEW] 아이디에 가짜 도메인을 붙여 이메일 형식으로 만듦
+    const email = id + DOMAIN; 
+
     try {
         if (isLoginMode) {
-            // [로그인 시도]
             await signInWithEmailAndPassword(auth, email, password);
-            // 성공하면 onAuthStateChanged가 처리함
         } else {
-            // [회원가입 시도]
-            // 1. 유효성 검사
             if (password !== confirmPassword) {
                 loginMessage.innerText = "비밀번호가 일치하지 않습니다.";
                 return;
@@ -148,23 +142,18 @@ btnAuthAction.addEventListener('click', async () => {
                 return;
             }
 
-            // 2. 계정 생성
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
-
-            // 3. 프로필(닉네임) 업데이트
             await updateProfile(user, { displayName: nickname });
             
             alert(`환영합니다, ${nickname} 작가님!`);
-            // 성공하면 onAuthStateChanged가 처리함
         }
     } catch (error) {
-        // 에러 코드별 친절한 메시지
         let msg = "오류가 발생했습니다: " + error.code;
-        if (error.code === 'auth/email-already-in-use') msg = "이미 가입된 이메일입니다.";
-        else if (error.code === 'auth/invalid-email') msg = "이메일 형식이 올바르지 않습니다.";
+        if (error.code === 'auth/email-already-in-use') msg = "이미 사용 중인 아이디입니다."; // 문구 변경
+        else if (error.code === 'auth/invalid-email') msg = "아이디 형식이 올바르지 않습니다.";
         else if (error.code === 'auth/wrong-password') msg = "비밀번호가 틀렸습니다.";
-        else if (error.code === 'auth/user-not-found') msg = "존재하지 않는 계정입니다.";
+        else if (error.code === 'auth/user-not-found') msg = "존재하지 않는 아이디입니다.";
         else if (error.code === 'auth/weak-password') msg = "비밀번호가 너무 약합니다.";
         
         loginMessage.innerText = msg;
@@ -177,7 +166,6 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = user;
         loginOverlay.style.display = 'none';
         
-        // 닉네임 표시 (없으면 이메일 앞부분)
         const displayName = user.displayName || user.email.split('@')[0];
         if(userInfoDisplay) userInfoDisplay.innerText = `${displayName}님 (Cloud On)`;
         
@@ -186,16 +174,16 @@ onAuthStateChanged(auth, async (user) => {
     } else {
         currentUser = null;
         loginOverlay.style.display = 'flex';
-        // 로그아웃 상태면 폼 초기화
         emailInput.value = ''; passwordInput.value = ''; 
         if(userInfoDisplay) userInfoDisplay.innerText = '';
     }
 });
 
-// 로그아웃
 if(btnLogout) btnLogout.addEventListener('click', () => {
     if(confirm("로그아웃 하시겠습니까?")) signOut(auth).then(() => location.reload());
 });
+
+// ... (이하 나머지 코드는 기존과 완벽히 동일) ...
 
 // ============================================================
 // [4] 클라우드 동기화 (기존 로직 유지)
