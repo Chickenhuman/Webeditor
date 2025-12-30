@@ -1,3 +1,6 @@
+const APP_VERSION = "Ver 1.0.0";
+const LAST_UPDATED = "Updated 2025.12.30";
+
 // ============================================================
 // [1] Firebase SDK 설정
 // ============================================================
@@ -329,6 +332,15 @@ sidebarListEl.addEventListener('click', (e) => {
         mobileOverlay.classList.remove('active');
     }
 });
+// ============================================================
+// [6] 초기화 및 버전 표시 실행 (맨 아래쪽에 추가)
+// ============================================================
+
+// 버전 정보 화면에 출력
+const versionDisplay = document.getElementById('versionDisplay');
+if (versionDisplay) {
+    versionDisplay.innerText = `${APP_VERSION} / ${LAST_UPDATED}`;
+}
 
 // Window export
 window.performSave = performSave;
@@ -530,3 +542,4 @@ autoSaveInput.addEventListener('change', startAutoSaveTimer);
 fileInput.addEventListener('change', handleFileSelect);
 backupInput.addEventListener('change', restoreData);
 window.onbeforeunload=function(){if(hasUnsavedChanges)return "저장안됨";}
+

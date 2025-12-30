@@ -510,3 +510,11 @@ body {
     #lastSavedDisplay { display: none; } /* 공간 부족하면 '준비됨' 글자 숨김 */
     .count-info span { font-size: 11px; }
 }
+
+.version-text {
+    font-size: 10px;
+    color: #ccc;
+    margin-top: 12px;
+    text-align: center;
+    font-family: monospace; /* 개발자 느낌 */
+}
