@@ -477,13 +477,13 @@ body {
     /* 3. 메인 영역 & 툴바 */
     .mobile-only { display: inline-flex; justify-content: center; align-items: center; font-size: 18px; border:none; background:transparent;}
     
-    .top-bar {
-        padding: 0 10px;
-        overflow-x: auto; /* 버튼 많으면 좌우 스크롤 */
-        white-space: nowrap; /* 줄바꿈 방지 */
-        -webkit-overflow-scrolling: touch; /* 부드러운 스크롤 */
-    }
-    
+.top-bar {
+    padding: 0 10px;
+    overflow: visible; /* auto를 visible로 변경해야 드롭다운이 잘리지 않고 나옵니다 */
+    white-space: nowrap;
+    /* 스크롤 관련 속성 삭제 */
+}
+
     /* 스크롤바 숨기기 (깔끔하게) */
     .top-bar::-webkit-scrollbar { display: none; }
 
@@ -587,7 +587,7 @@ body {
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         padding: 10px;
         border-radius: 0 0 0 8px;
-        z-index: 1000;
+        z-index: 2000;
         align-items: stretch; /* 가로 꽉 차게 */
     }
 
