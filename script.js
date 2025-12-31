@@ -35,8 +35,14 @@ const DOMAIN = "@private.user";
 let library = JSON.parse(localStorage.getItem('novelLibrary')) || [];
 let currentNovelId = null; 
 let currentChapterId = null;
-let settings = JSON.parse(localStorage.getItem('editorSettings')) || { darkMode: false, autoSaveMin: 3, targetCount: 5000, goalType: 'space' };
-
+const defaultSymbols = "「」, 『』, (), [], “”, ─, …, ★, ※"; 
+let settings = JSON.parse(localStorage.getItem('editorSettings')) || { 
+    darkMode: false, 
+    autoSaveMin: 3, 
+    targetCount: 5000, 
+    goalType: 'space',
+    customSymbols: defaultSymbols 
+};
 
 
 const MAX_HISTORY = 50;
@@ -104,15 +110,6 @@ const findInput = document.getElementById('findInput');
 const replaceInput = document.getElementById('replaceInput');
 // 기존 settings 선언부를 찾아서 아래처럼 'customSymbols'를 추가하세요.
 // (이미 있다면 이 부분만 확인해서 추가하면 됩니다)
-const defaultSymbols = "「」, 『』, (), [], “”, ─, …, ★, ※"; // 기본값
-let settings = JSON.parse(localStorage.getItem('editorSettings')) || { 
-    darkMode: false, 
-    autoSaveMin: 3, 
-    targetCount: 5000, 
-    goalType: 'space',
-    customSymbols: defaultSymbols // [NEW] 커스텀 기호 추가
-};
-
 
 // ============================================================
 // [3] 인증 시스템
