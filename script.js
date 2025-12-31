@@ -491,6 +491,34 @@ function saveLibrary() {
     localStorage.setItem('localLastUpdated', new Date().toISOString());
 }
 
+// ============================================================
+// [NEW] 상단 메뉴 토글 로직 (모바일용)
+// ============================================================
+const btnMoreMenu = document.getElementById('btnMoreMenu');
+const rightToolbarItems = document.getElementById('rightToolbarItems');
+
+if (btnMoreMenu && rightToolbarItems) {
+    // 버튼 클릭 시 메뉴 보이기/숨기기
+    btnMoreMenu.addEventListener('click', (e) => {
+        e.stopPropagation(); // 이벤트 버블링 방지
+        rightToolbarItems.classList.toggle('show');
+    });
+
+    // 메뉴 영역 밖을 클릭하면 닫기
+    document.addEventListener('click', (e) => {
+        if (!rightToolbarItems.contains(e.target) && !btnMoreMenu.contains(e.target)) {
+            rightToolbarItems.classList.remove('show');
+        }
+    });
+    
+    // 메뉴 내부 버튼 클릭 시 메뉴 닫기 (편의성)
+    rightToolbarItems.addEventListener('click', () => {
+        if(window.innerWidth <= 768) {
+            rightToolbarItems.classList.remove('show');
+        }
+    });
+}
+
 function startAutoSaveTimer() { if (autoSaveTimerId) clearInterval(autoSaveTimerId); const m = parseInt(autoSaveInput.value) || 3; settings.autoSaveMin = m; localStorage.setItem('editorSettings', JSON.stringify(settings)); autoSaveTimerId = setInterval(() => { if (hasUnsavedChanges) performSave(); }, m * 60 * 1000); }
 function markAsUnsaved() { if (!hasUnsavedChanges) { hasUnsavedChanges = true; updateUnsavedIndicator(); } updateCount(); }
 function updateUnsavedIndicator() { unsavedDot.style.display = hasUnsavedChanges ? 'inline-block' : 'none'; lastSavedDisplay.innerText = hasUnsavedChanges ? '저장 안됨' : '준비됨'; }

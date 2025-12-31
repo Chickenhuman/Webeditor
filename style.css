@@ -520,3 +520,114 @@ body {
     text-align: center;
     font-family: monospace; /* 개발자 느낌 */
 }
+
+/* =========================================
+   [NEW] 반응형 UI 개선 (상단 메뉴 접기 & 하단 고정)
+   ========================================= */
+
+/* 1. 상단 툴바 우측 메뉴 (데스크탑 기본) */
+.mobile-toggle-btn {
+    display: none; /* PC에서는 더보기 버튼 숨김 */
+}
+.right-items-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 2. 하단 상태바 글자수 고정 (Flexbox 제어) */
+.status-bar {
+    flex-wrap: nowrap; /* 줄바꿈 절대 금지 */
+    gap: 10px;
+    overflow: hidden; /* 넘치는 내용 숨김 */
+}
+
+/* 왼쪽 버튼(찾기)은 공간 부족 시 줄어들도록 설정 */
+.status-bar .btn-status-tool {
+    flex-shrink: 1; 
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 30px; /* 최소 아이콘 크기는 유지 */
+}
+
+/* 오른쪽 글자수 정보는 절대 줄어들지 않게 설정 (핵심 요청) */
+.count-info {
+    flex-shrink: 0; /* 압축 금지 */
+    margin-left: auto; /* 우측 끝으로 밀기 */
+    white-space: nowrap; /* 텍스트 줄바꿈 방지 */
+    background: var(--bg-panel); /* 배경색을 줘서 겹칠 때 위로 오게 함 */
+    padding-left: 10px;
+}
+
+
+/* =========================================
+   [Mobile] 화면이 좁을 때 (768px 이하)
+   ========================================= */
+@media (max-width: 768px) {
+    /* --- 상단 툴바 변경 --- */
+    
+    /* 더보기 버튼 표시 */
+    .mobile-toggle-btn {
+        display: block; 
+        font-weight: bold;
+        font-size: 18px;
+    }
+
+    /* 우측 메뉴들 숨기기 (기본 상태) */
+    .right-items-wrapper {
+        display: none; /* 평소엔 안보임 */
+        position: absolute;
+        top: 50px; /* 툴바 높이 바로 아래 */
+        right: 0;
+        width: 160px;
+        flex-direction: column; /* 세로 정렬 */
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        padding: 10px;
+        border-radius: 0 0 0 8px;
+        z-index: 1000;
+        align-items: stretch; /* 가로 꽉 차게 */
+    }
+
+    /* 클래스가 추가되면 보임 (JS로 제어) */
+    .right-items-wrapper.show {
+        display: flex;
+    }
+
+    /* 드롭다운 내부 버튼 스타일 조정 */
+    .right-items-wrapper .btn-tool {
+        width: 100%;
+        text-align: left;
+        margin-bottom: 5px;
+        border: none;
+        background: transparent;
+    }
+    .right-items-wrapper .btn-tool:hover {
+        background: #f0f4f8;
+    }
+    .right-items-wrapper .v-divider {
+        display: none; /* 세로 구분선 숨김 */
+    }
+    .right-items-wrapper .export-group {
+        flex-direction: column; /* 내보내기 버튼도 세로로 */
+        width: 100%;
+    }
+
+    /* --- 하단 바 변경 --- */
+    
+    /* 공간 확보를 위해 찾기 버튼의 텍스트 숨기기 */
+    .status-bar .btn-status-tool {
+        font-size: 0; /* 글자 숨김 */
+    }
+    .status-bar .btn-status-tool::before {
+        content: '🔍'; /* 아이콘만 표시 */
+        font-size: 14px;
+    }
+    
+    /* 모드 표시(편집모드 등) 숨기기 */
+    #modeDisplay {
+        display: none;
+    }
+}
