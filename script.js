@@ -1,5 +1,5 @@
-const APP_VERSION = "Ver 1.0.1";
-const LAST_UPDATED = "Updated 2025.12.30";
+const APP_VERSION = "Ver 1.0.2";
+const LAST_UPDATED = "Updated 2025.12.31";
 
 // 버전업데이트로직: 소규모 패치 -> 0.0.1씩 상승, 적당한 규모 패치 0.1.0 상승, 0.9에서 소규모 패치 추가 -> 0.0.9 -> 0.1.0 , 
 // 개혁수준의 대규모패치 -> 1.0.0 상승
@@ -515,6 +515,31 @@ if (btnMoreMenu && rightToolbarItems) {
     rightToolbarItems.addEventListener('click', () => {
         if(window.innerWidth <= 768) {
             rightToolbarItems.classList.remove('show');
+        }
+    });
+}
+
+// ============================================================
+// [NEW] 설정 팝업 토글 로직
+// ============================================================
+const btnSettings = document.getElementById('btnSettings');
+const settingsPopup = document.getElementById('settingsPopup');
+
+if (btnSettings && settingsPopup) {
+    btnSettings.addEventListener('click', (e) => {
+        e.stopPropagation();
+        settingsPopup.classList.toggle('show');
+    });
+
+    // 팝업 내부 클릭 시 닫히지 않도록
+    settingsPopup.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    // 화면 아무 곳이나 클릭하면 팝업 닫기
+    document.addEventListener('click', (e) => {
+        if (!settingsPopup.contains(e.target) && e.target !== btnSettings) {
+            settingsPopup.classList.remove('show');
         }
     });
 }
