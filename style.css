@@ -706,3 +706,63 @@ body {
         padding: 15px 15px 5px;
     }
 }
+
+/* =========================================
+   [NEW] 서식 툴바 모바일 최적화 & 커스텀 기호
+   ========================================= */
+
+.format-toolbar {
+    padding: 8px 15px; /* 좌우 여백 조정 */
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px; /* 요소 간 간격 */
+
+    /* 가로 스크롤 핵심 설정 */
+    overflow-x: auto;         /* 내용이 넘치면 스크롤 */
+    white-space: nowrap;      /* 줄바꿈 금지 */
+    -webkit-overflow-scrolling: touch; /* 모바일에서 부드러운 스크롤 */
+    
+    /* 스크롤바 숨기기 (깔끔하게) */
+    scrollbar-width: none; /* Firefox */
+}
+.format-toolbar::-webkit-scrollbar { display: none; /* Chrome, Safari */ }
+
+/* 서식 그룹과 심볼 그룹 */
+.format-group, .symbol-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0; /* 절대 찌그러지지 않게 고정 */
+}
+
+/* 버튼 크기 및 터치 영역 확보 */
+.btn-format, .btn-symbol {
+    flex-shrink: 0; /* 버튼 압축 방지 */
+    min-width: 32px; /* 최소 너비 확보 */
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+/* 기호 편집 버튼 스타일 */
+.btn-edit-symbol {
+    flex-shrink: 0;
+    background: none;
+    border: 1px dashed var(--border);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--text-sub);
+    margin-left: 5px;
+}
+.btn-edit-symbol:hover {
+    background: #f0f4f8;
+    color: var(--primary);
+    border-color: var(--primary);
+}

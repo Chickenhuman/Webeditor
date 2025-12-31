@@ -1,4 +1,4 @@
-const APP_VERSION = "Ver 1.0.2";
+const APP_VERSION = "Ver 1.0.3";
 const LAST_UPDATED = "Updated 2025.12.31";
 
 // 버전업데이트로직: 소규모 패치 -> 0.0.1씩 상승, 적당한 규모 패치 0.1.0 상승, 0.9에서 소규모 패치 추가 -> 0.0.9 -> 0.1.0 , 
@@ -36,6 +36,8 @@ let library = JSON.parse(localStorage.getItem('novelLibrary')) || [];
 let currentNovelId = null; 
 let currentChapterId = null;
 let settings = JSON.parse(localStorage.getItem('editorSettings')) || { darkMode: false, autoSaveMin: 3, targetCount: 5000, goalType: 'space' };
+
+
 
 const MAX_HISTORY = 50;
 let undoStack = [], redoStack = [];
@@ -100,6 +102,17 @@ const memoTextarea = document.getElementById('memoTextarea');
 const searchModal = document.getElementById('searchModal');
 const findInput = document.getElementById('findInput');
 const replaceInput = document.getElementById('replaceInput');
+// 기존 settings 선언부를 찾아서 아래처럼 'customSymbols'를 추가하세요.
+// (이미 있다면 이 부분만 확인해서 추가하면 됩니다)
+const defaultSymbols = "「」, 『』, (), [], “”, ─, …, ★, ※"; // 기본값
+let settings = JSON.parse(localStorage.getItem('editorSettings')) || { 
+    darkMode: false, 
+    autoSaveMin: 3, 
+    targetCount: 5000, 
+    goalType: 'space',
+    customSymbols: defaultSymbols // [NEW] 커스텀 기호 추가
+};
+
 
 // ============================================================
 // [3] 인증 시스템
@@ -295,7 +308,7 @@ editor.addEventListener('beforeinput', () => {
 function init() {
     applySettings();
     checkMigration();
-    
+    renderSymbolButtons(); // [NEW]
     // 소설이 없으면 생성
     if (library.length === 0) {
         createNovel("새 소설");
@@ -543,6 +556,69 @@ if (btnSettings && settingsPopup) {
         }
     });
 }
+
+// ============================================================
+// [NEW] 커스텀 기호 관리 로직
+// ============================================================
+
+const symbolGroup = document.getElementById('symbolGroup');
+const symbolEditModal = document.getElementById('symbolEditModal');
+const symbolInput = document.getElementById('symbolInput');
+
+// 1. 기호 버튼 렌더링 (핵심)
+function renderSymbolButtons() {
+    if (!symbolGroup) return;
+    symbolGroup.innerHTML = ''; // 기존 버튼 초기화
+
+    // 저장된 문자열을 콤마로 잘라서 배열로 만듦
+    const symbols = (settings.customSymbols || "「」, 『』, (), [], “”, ─, …, ★").split(',');
+
+    symbols.forEach(sym => {
+        const s = sym.trim();
+        if (!s) return;
+
+        const btn = document.createElement('button');
+        btn.className = 'btn-symbol';
+        
+        // 2글자이고 괄호처럼 짝이 맞는 경우 (예: "「」") -> 앞뒤로 감싸는 기능
+        if (s.length === 2) {
+            const open = s[0];
+            const close = s[1];
+            btn.innerText = s; // 버튼에는 "「」" 표시
+            btn.onclick = () => window.insertSymbol(open, close);
+        } else {
+            // 그 외 (예: "…", "★", "※") -> 그냥 삽입
+            btn.innerText = s;
+            btn.onclick = () => window.insertSymbol(s, '');
+        }
+        symbolGroup.appendChild(btn);
+    });
+}
+
+// 2. 편집 모달 열기
+window.openSymbolEditor = function() {
+    symbolInput.value = settings.customSymbols || "";
+    symbolEditModal.style.display = 'block';
+};
+
+// 3. 편집 모달 닫기
+window.closeSymbolEditor = function() {
+    symbolEditModal.style.display = 'none';
+};
+
+// 4. 저장하고 적용하기
+window.saveCustomSymbols = function() {
+    const val = symbolInput.value;
+    settings.customSymbols = val; // 설정 객체 업데이트
+    localStorage.setItem('editorSettings', JSON.stringify(settings)); // 로컬 저장
+    
+    // 클라우드 저장 (로그인 상태라면)
+    if (currentUser) saveToCloud();
+    
+    renderSymbolButtons(); // 버튼 다시 그리기
+    window.closeSymbolEditor(); // 창 닫기
+    alert("기호 설정이 저장되었습니다.");
+};
 
 function startAutoSaveTimer() { if (autoSaveTimerId) clearInterval(autoSaveTimerId); const m = parseInt(autoSaveInput.value) || 3; settings.autoSaveMin = m; localStorage.setItem('editorSettings', JSON.stringify(settings)); autoSaveTimerId = setInterval(() => { if (hasUnsavedChanges) performSave(); }, m * 60 * 1000); }
 function markAsUnsaved() { if (!hasUnsavedChanges) { hasUnsavedChanges = true; updateUnsavedIndicator(); } updateCount(); }

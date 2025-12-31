@@ -158,25 +158,37 @@
 
         <div class="editor-wrapper" id="editorWrapper">
             <input type="text" id="titleInput" class="chapter-title-input" placeholder="제목을 입력하세요">
-            <div class="format-toolbar" id="formatToolbar">
-                <div class="format-group">
-                    <button class="btn-format" onclick="window.execCmd('bold')"><b>B</b></button>
-                    <button class="btn-format" onclick="window.execCmd('italic')"><i>I</i></button>
-                    <button class="btn-format" onclick="window.execCmd('underline')"><u>U</u></button>
-                    <button class="btn-format" onclick="window.execCmd('strikeThrough')"><s>S</s></button>
-                </div>
-                <div class="v-divider small"></div>
-                <div class="symbol-group">
-                    <button class="btn-symbol" onclick="window.insertSymbol('「', '」')">「 」</button>
-                    <button class="btn-symbol" onclick="window.insertSymbol('『', '』')">『 』</button>
-                    <button class="btn-symbol" onclick="window.insertSymbol('(', ')')">( )</button>
-                    <button class="btn-symbol" onclick="window.insertSymbol('[', ']')">[ ]</button>
-                    <button class="btn-symbol" onclick="window.insertSymbol('“', '”')">“ ”</button>
-                    <button class="btn-symbol" onclick="window.insertSymbol('─', '')">─</button>
-                    <button class="btn-symbol" onclick="window.insertSymbol('…', '')">…</button>
-                    <button class="btn-symbol" onclick="window.insertSymbol('★', '')">★</button>
-                </div>
-            </div>
+<div class="format-toolbar" id="formatToolbar">
+    <div class="format-group">
+        <button class="btn-format" onclick="window.execCmd('bold')"><b>B</b></button>
+        <button class="btn-format" onclick="window.execCmd('italic')"><i>I</i></button>
+        <button class="btn-format" onclick="window.execCmd('underline')"><u>U</u></button>
+        <button class="btn-format" onclick="window.execCmd('strikeThrough')"><s>S</s></button>
+    </div>
+    
+    <div class="v-divider small"></div>
+
+    <div class="symbol-group" id="symbolGroup">
+        </div>
+
+    <button class="btn-edit-symbol" onclick="window.openSymbolEditor()" title="기호 편집">✏️</button>
+</div>
+
+<div id="symbolEditModal" class="search-modal" style="display:none; height:auto;">
+    <div class="modal-header">
+        <span>자주 쓰는 기호 설정</span>
+        <button onclick="window.closeSymbolEditor()" class="btn-close-modal">×</button>
+    </div>
+    <div class="modal-body">
+        <p style="font-size:12px; color:#666; margin-bottom:8px;">
+            콤마(,)로 구분해서 입력하세요.<br>
+            2글자(예: 「」)는 앞뒤로 감싸고, 1글자는 그냥 입력됩니다.
+        </p>
+        <textarea id="symbolInput" style="width:100%; height:80px; padding:8px; border:1px solid #ddd; border-radius:4px; resize:none; font-family:monospace;"></textarea>
+        <button onclick="window.saveCustomSymbols()" class="btn-replace" style="margin-top:10px;">저장 및 적용</button>
+    </div>
+</div>
+
             <div class="editor-scroll-area">
                 <div id="mainEditor" class="editor" contenteditable="true" placeholder="여기에 소설을 작성하세요..."></div>
                 <textarea id="htmlSourceEditor" class="html-editor" style="display:none;"></textarea>
