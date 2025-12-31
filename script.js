@@ -35,14 +35,6 @@ const DOMAIN = "@private.user";
 let library = JSON.parse(localStorage.getItem('novelLibrary')) || [];
 let currentNovelId = null; 
 let currentChapterId = null;
-const defaultSymbols = "「」, 『』, (), [], “”, ─, …, ★, ※"; 
-let settings = JSON.parse(localStorage.getItem('editorSettings')) || { 
-    darkMode: false, 
-    autoSaveMin: 3, 
-    targetCount: 5000, 
-    goalType: 'space',
-    customSymbols: defaultSymbols 
-};
 
 
 const MAX_HISTORY = 50;
