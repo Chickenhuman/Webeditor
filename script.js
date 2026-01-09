@@ -471,7 +471,7 @@ function openNovel(id) {
     renderNovelSidebar(); 
     loadChapter(currentChapterId);
     undoStack=[]; redoStack=[];
-
+}
 
 function renderNovelSidebar() {
     viewMode = 'novel';
