@@ -1,4 +1,4 @@
-const APP_VERSION = "Ver 1.1.5";
+const APP_VERSION = "Ver 1.1.6";
 const LAST_UPDATED = "Updated 2026.01.09";
 
 // 버전업데이트로직: 소규모 패치 -> 0.0.1씩 상승, 적당한 규모 패치 0.1.0 상승, 0.9에서 소규모 패치 추가 -> 0.0.9 -> 0.1.0 , 
@@ -240,6 +240,7 @@ async function syncFromCloud(uid) {
     }
 }
 
+// [수정됨] 서버 데이터 적용 (마지막 작업 위치 동기화)
 function applyServerData(data) {
     if (data.library) {
         library = data.library;
@@ -248,6 +249,10 @@ function applyServerData(data) {
     if (data.settings) {
         settings = data.settings;
         localStorage.setItem('editorSettings', JSON.stringify(settings));
+    }
+    // [NEW] 서버에 저장된 마지막 위치 정보를 로컬에도 반영
+    if (data.lastActive) {
+        localStorage.setItem('editorLastActive', JSON.stringify(data.lastActive));
     }
     localStorage.setItem('localLastUpdated', data.lastUpdated);
 }
@@ -259,12 +264,13 @@ async function saveToCloud() {
         await setDoc(doc(db, "users", currentUser.uid), {
             library: library,
             settings: settings,
-            lastUpdated: now
+            lastUpdated: now,
+            // [NEW] 현재 열려있는 소설과 챕터 ID 저장
+            lastActive: { novelId: currentNovelId, chapterId: currentChapterId }
         });
         localStorage.setItem('localLastUpdated', now);
     } catch (e) { console.error("저장 실패", e); }
 }
-
 // ============================================================
 // [5] 에디터 및 히스토리 로직
 // ============================================================
@@ -302,21 +308,42 @@ editor.addEventListener('beforeinput', () => {
 });
 
 // [중요] 초기화 로직 수정
+// [수정됨] 초기화 (마지막 작업 소설 자동 열기)
 function init() {
     applySettings();
     checkMigration();
-    renderSymbolButtons(); // [NEW]
+    renderSymbolButtons();
+    
     // 소설이 없으면 생성
     if (library.length === 0) {
         createNovel("새 소설");
     } else {
-        // [NEW] 소설이 있으면 가장 최근(첫번째) 소설 자동 열기
-        openNovel(library[0].id);
+        // [NEW] 저장된 마지막 위치(editorLastActive)가 있는지 확인
+        const lastActive = JSON.parse(localStorage.getItem('editorLastActive'));
+        
+        // 마지막 위치 정보가 있고, 해당 소설이 실제로 존재하면 그 ID 사용
+        let targetNovelId = library[0].id; // 기본값: 첫 번째 소설
+        if (lastActive && library.find(n => n.id === lastActive.novelId)) {
+            targetNovelId = lastActive.novelId;
+        }
+
+        // 1. 소설 열기 (기본적으로 1화가 열림)
+        openNovel(targetNovelId);
+
+        // 2. 만약 마지막으로 작업한 챕터가 1화가 아니라면, 그 챕터로 이동
+        if (lastActive && lastActive.chapterId && currentNovelId === targetNovelId) {
+            const n = getCurrentNovel();
+            // 해당 챕터가 존재하는지 확인 후 이동
+            if (n && n.chapters.find(c => c.id === lastActive.chapterId)) {
+                loadChapter(lastActive.chapterId);
+            }
+        }
     }
     
     startAutoSaveTimer();
     enableDragAndDrop();
 }
+
 
 
 // [NEW] 모바일 메뉴 토글 로직
@@ -511,8 +538,31 @@ function enableDragAndDrop() {
 function getDragAfterElement(c, y) { const els = [...c.querySelectorAll('.chapter-item:not(.dragging)')]; return els.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
 function updateChaptersOrder() { const n = getCurrentNovel(); const newC = []; sidebarListEl.querySelectorAll('.chapter-item').forEach(item => { const id = Number(item.getAttribute('data-id')); const c = n.chapters.find(ch => ch.id === id); if (c) newC.push(c); }); n.chapters = newC; performSave(); }
 
-function loadChapter(id) { const n = getCurrentNovel(); const c = n.chapters.find(ch => ch.id === id); if (c) { currentChapterId = id; titleInput.value = c.title; editor.innerHTML = c.content; htmlEditor.value = c.content; undoStack=[]; redoStack=[]; hasUnsavedChanges = false; updateUnsavedIndicator(); updateCount(); renderNovelSidebar(); } }
-function switchChapter(id) { performSave(); loadChapter(id); }
+// [수정됨] 챕터 로드 (위치 기억 기능 추가)
+function loadChapter(id) { 
+    const n = getCurrentNovel(); 
+    const c = n.chapters.find(ch => ch.id === id); 
+    if (c) { 
+        currentChapterId = id; 
+        titleInput.value = c.title; 
+        editor.innerHTML = c.content; 
+        htmlEditor.value = c.content; 
+        undoStack=[]; redoStack=[]; 
+        hasUnsavedChanges = false; 
+        updateUnsavedIndicator(); 
+        updateCount(); 
+        renderNovelSidebar(); 
+        
+        // [NEW] 챕터를 열 때마다 로컬 스토리지에 '마지막 작업 위치' 기록
+        if (currentNovelId && currentChapterId) {
+            localStorage.setItem('editorLastActive', JSON.stringify({
+                novelId: currentNovelId,
+                chapterId: currentChapterId
+            }));
+        }
+    } 
+}
+
 
 // [수정됨] 저장 로직 (메시지 덮어쓰기 버그 수정)
 function performSave() {
