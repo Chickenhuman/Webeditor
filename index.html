@@ -94,7 +94,7 @@
 
 <main class="main-area">
         <div class="top-bar">
-            <button id="btnMobileMenu" class="btn-tool mobile-only" style="margin-right:20px;">☰</button>
+            <button id="btnMobileMenu" class="btn-tool mobile-only" style="margin-right:10px;">☰</button>
 
  <div class="toolbar-group">
         <button onclick="window.performSave()" class="btn-tool primary" title="즉시 저장">💾 <span class="desktop-only">저장</span></button>
@@ -143,7 +143,9 @@
                 <button onclick="window.downloadAll('txt')" class="btn-tool">📄 TXT</button>
                 <button onclick="window.downloadAll('docx')" class="btn-tool" style="color:#2b579a; font-weight:bold;">📘 DOCX</button>
             </div>
-            
+            <div class="v-divider"></div>
+<button onclick="window.saveSnapshot()" class="btn-tool" title="새 기록으로 저장 (박제)">📸 기록저장</button>
+<button onclick="window.openSnapshotList()" class="btn-tool" title="저장된 기록 보기">🕰️ 타임머신</button>
             <button onclick="window.backupData()" class="btn-tool">☁️ 백업</button>
             <button onclick="window.toggleDarkMode()" id="themeBtn" class="btn-tool icon-btn">🌙</button>
             
@@ -241,6 +243,19 @@
             <button onclick="window.findAndReplace()" class="btn-replace">모두 바꾸기</button>
         </div>
     </div>
+<div id="historyModal" class="login-overlay" style="display:none; z-index: 5000;">
+    <div class="login-box" style="width: 400px; text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
+            <h3 style="margin:0;">🕰️ 클라우드 타임머신</h3>
+            <button onclick="window.closeHistoryModal()" class="btn-close" style="font-size:24px;">×</button>
+        </div>
+        <p style="font-size:12px; color:#666; margin-bottom:15px;">
+            게시판처럼 저장된 과거 기록들입니다. 원하는 시점으로 되돌릴 수 있습니다.
+        </p>
+        <div id="snapshotList" style="height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; background: #fafafa;">
+            </div>
+    </div>
+</div>
 
     <script type="module" src="script.js"></script>
 </body>

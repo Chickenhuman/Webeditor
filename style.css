@@ -110,13 +110,38 @@ body {
 /* 챕터 아이템 (소설 내부 모드) */
 .chapter-item { }
 
-.delete-btn {
-    visibility: hidden;
-    background: none; border: none; color: #aaa;
-    font-size: 14px; cursor: pointer; padding: 2px 5px;
+.novel-actions {
+    display: flex;
+    gap: 5px;
+    align-items: center;
 }
+
+/* 기존 삭제 버튼 + 새로운 잠금 버튼 공통 스타일 */
+.delete-btn, .lock-btn {
+    visibility: hidden; /* 마우스 올리기 전엔 숨김 */
+    background: none; 
+    border: none; 
+    font-size: 14px; 
+    cursor: pointer; 
+    padding: 2px 5px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+
 .delete-btn:hover { color: var(--danger); }
-.list-item:hover .delete-btn { visibility: visible; }
+.lock-btn:hover { color: var(--primary); background: rgba(74, 144, 226, 0.1); }
+.list-item:hover .delete-btn,
+.list-item:hover .lock-btn { 
+    visibility: visible; 
+}
+
+@media (max-width: 768px) {
+    .delete-btn, .lock-btn {
+        visibility: visible;
+        padding: 8px; /* 터치 영역 확대 */
+    }
+}
 
 
 .sidebar-footer { padding: 10px; text-align: center; border-top: 1px solid var(--border); }
@@ -765,4 +790,37 @@ body {
     background: #f0f4f8;
     color: var(--primary);
     border-color: var(--primary);
+}
+
+/* 히스토리(스냅샷) 리스트 스타일 */
+.history-item {
+    background: white;
+    border-bottom: 1px solid #eee;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: 0.2s;
+}
+.history-item:hover {
+    background: #f0f8ff;
+}
+.history-info {
+    display: flex; 
+    flex-direction: column; 
+    gap: 4px;
+}
+.history-date {
+    font-size: 13px; 
+    font-weight: bold; 
+    color: #333;
+}
+.history-summary {
+    font-size: 11px; 
+    color: #888;
+}
+.history-actions {
+    display: flex; 
+    gap: 5px; 
+    align-items: center;
 }

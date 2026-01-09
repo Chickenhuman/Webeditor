@@ -1,5 +1,5 @@
-const APP_VERSION = "Ver 1.0.3";
-const LAST_UPDATED = "Updated 2025.12.31";
+const APP_VERSION = "Ver 1.1.3";
+const LAST_UPDATED = "Updated 2026.01.09";
 
 // 버전업데이트로직: 소규모 패치 -> 0.0.1씩 상승, 적당한 규모 패치 0.1.0 상승, 0.9에서 소규모 패치 추가 -> 0.0.9 -> 0.1.0 , 
 // 개혁수준의 대규모패치 -> 1.0.0 상승
@@ -10,7 +10,7 @@ const LAST_UPDATED = "Updated 2025.12.31";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, collection, addDoc, getDocs, query, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBXra3sW5xB7chXd700odnr1i_8HVMJLrc",
@@ -382,7 +382,7 @@ function checkMigration() {
     }
 }
 
-// [수정됨] 서재 모드에서는 에디터 숨김
+// [수정됨] 서재 목록 렌더링 (잠금 버튼 추가)
 function renderLibrary() {
     viewMode = 'library'; currentNovelId = null;
     sidebarTitle.innerText = "내 서재";
@@ -390,16 +390,45 @@ function renderLibrary() {
     sidebarActionBtn.title = "새 소설"; sidebarActionBtn.onclick = createNovelPrompt;
     if(sidebarStatus) sidebarStatus.innerText = `총 ${library.length}개`;
     libraryHomeBtn.style.display = 'none'; 
-    
-    // [NEW] 에디터 숨기기 (서재 모드에서 작성 방지)
     editorWrapper.style.display = 'none';
-    // 만약 빈 공간에 메시지를 띄우고 싶다면 여기에 추가 가능
 
     sidebarListEl.innerHTML = '';
     library.forEach(n => {
-        const li = document.createElement('li'); li.className = 'list-item novel-item';
-        li.innerHTML = `<div style="display:flex; align-items:center;"><span class="novel-icon">📘</span><span>${n.title}</span></div><button class="delete-btn">🗑️</button>`;
-        li.onclick = (e) => { if (e.target.classList.contains('delete-btn')) { deleteNovel(n.id); return; } openNovel(n.id); };
+        const li = document.createElement('li'); 
+        li.className = 'list-item novel-item';
+        
+        // 잠금 상태 확인
+        const isLocked = !!n.password;
+        const icon = isLocked ? '🔒' : '📘';
+        const lockBtnTitle = isLocked ? '잠금 해제' : '비밀번호 설정';
+        const lockBtnIcon = isLocked ? '🔓' : '🔐';
+
+        li.innerHTML = `
+            <div style="display:flex; align-items:center; overflow:hidden;">
+                <span class="novel-icon">${icon}</span>
+                <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${n.title}</span>
+            </div>
+            <div class="novel-actions">
+                <button class="lock-btn" title="${lockBtnTitle}">${lockBtnIcon}</button>
+                <button class="delete-btn" title="삭제">🗑️</button>
+            </div>
+        `;
+        
+        li.onclick = (e) => { 
+            // 삭제 버튼 클릭
+            if (e.target.classList.contains('delete-btn')) { 
+                deleteNovel(n.id); 
+                return; 
+            }
+            // 잠금/해제 버튼 클릭 (이벤트 전파 방지 중요)
+            if (e.target.classList.contains('lock-btn')) {
+                e.stopPropagation();
+                toggleLock(n.id);
+                return;
+            }
+            // 소설 열기
+            openNovel(n.id); 
+        };
         sidebarListEl.appendChild(li);
     });
 }
@@ -408,13 +437,27 @@ function createNovelPrompt() { const t = prompt("제목:", "새 작품"); if (t)
 function createNovel(t) { library.push({ id: Date.now(), title: t, chapters: [{ id: Date.now(), title: '1화', content: '' }], memo: '' }); saveLibrary(); renderLibrary(); }
 function deleteNovel(id) { if(!confirm("삭제?")) return; library = library.filter(n => n.id !== id); saveLibrary(); renderLibrary(); }
 
+// [수정됨] 소설 열기 (비밀번호 체크 로직 추가)
 function openNovel(id) {
-    const n = library.find(n => n.id === id); if (!n) return;
+    const n = library.find(n => n.id === id); 
+    if (!n) return;
+
+    // [NEW] 비밀번호가 있으면 확인
+    if (n.password) {
+        const input = prompt("🔒 이 소설은 비밀번호로 보호되어 있습니다.\n비밀번호를 입력하세요:");
+        // 취소했거나 비밀번호가 틀리면 열지 않음
+        if (input === null) return; 
+        if (input !== n.password) {
+            alert("비밀번호가 일치하지 않습니다.");
+            return;
+        }
+    }
+
+    // --- 기존 로직 그대로 실행 ---
     currentNovelId = id; memoTextarea.value = n.memo || '';
     if (n.chapters.length > 0) currentChapterId = n.chapters[0].id;
     else { const c = { id: Date.now(), title: '1화', content: '' }; n.chapters.push(c); currentChapterId = c.id; }
     
-    // [NEW] 에디터 다시 보이기
     editorWrapper.style.display = 'flex';
     
     renderNovelSidebar(); loadChapter(currentChapterId);
@@ -671,4 +714,159 @@ autoSaveInput.addEventListener('change', startAutoSaveTimer);
 fileInput.addEventListener('change', handleFileSelect);
 backupInput.addEventListener('change', restoreData);
 window.onbeforeunload=function(){if(hasUnsavedChanges)return "저장안됨";}
+
+// [NEW] 소설 잠금/해제 기능
+function toggleLock(id) {
+    const n = library.find(n => n.id === id);
+    if (!n) return;
+
+    if (n.password) {
+        // 이미 잠긴 경우 -> 해제 시도
+        const input = prompt("잠금을 해제하려면 현재 비밀번호를 입력하세요:");
+        if (input === null) return;
+        
+        if (input === n.password) {
+            delete n.password; // 비밀번호 삭제
+            alert("잠금이 해제되었습니다.");
+            saveLibrary();
+            renderLibrary(); // 아이콘 변경을 위해 다시 렌더링
+        } else {
+            alert("비밀번호가 틀렸습니다.");
+        }
+    } else {
+        // 잠기지 않은 경우 -> 잠금 설정
+        const newPass = prompt("설정할 비밀번호를 입력하세요.\n(주의: 분실 시 복구가 어렵습니다)");
+        if (newPass && newPass.trim() !== "") {
+            const confirmPass = prompt("비밀번호 확인을 위해 한 번 더 입력해주세요.");
+            if (newPass === confirmPass) {
+                n.password = newPass; // 비밀번호 저장
+                alert("비밀번호가 설정되었습니다. 이제 열 때마다 비밀번호가 필요합니다.");
+                saveLibrary();
+                renderLibrary();
+            } else {
+                alert("비밀번호가 일치하지 않아 설정되지 않았습니다.");
+            }
+        }
+    }
+}
+
+// ============================================================
+// [NEW] 클라우드 히스토리 (게시판형 저장소) 시스템
+// ============================================================
+
+// 1. 현재 상태를 '새로운 게시글'처럼 저장 (스냅샷 생성)
+async function saveSnapshot() {
+    if (!currentUser) return alert("로그인이 필요한 기능입니다.");
+    if (!confirm("현재 상태를 클라우드 히스토리에 박제하시겠습니까?\n(기존 데이터는 유지되고, 새로운 기록이 추가됩니다.)")) return;
+
+    try {
+        const now = new Date();
+        const snapshotData = {
+            library: library,
+            settings: settings,
+            savedAt: now.toISOString(),
+            deviceInfo: navigator.userAgent, // 어떤 기기에서 저장했는지 식별용
+            summary: `소설 ${library.length}개 / ${library.reduce((acc,cur)=>acc+cur.chapters.length,0)}개 챕터`
+        };
+
+        // users 컬렉션 -> 내 UID -> snapshots 서브 컬렉션에 추가 (addDoc은 덮어쓰지 않고 추가함)
+        await addDoc(collection(db, "users", currentUser.uid, "snapshots"), snapshotData);
+        alert("✅ 클라우드 히스토리에 안전하게 저장되었습니다.");
+    } catch (e) {
+        console.error("스냅샷 저장 실패", e);
+        alert("저장 중 오류가 발생했습니다: " + e.message);
+    }
+}
+
+// 2. 히스토리 목록 불러오기 (게시판 보기)
+async function openSnapshotList() {
+    if (!currentUser) return alert("로그인이 필요한 기능입니다.");
+    
+    const listContainer = document.getElementById('snapshotList');
+    listContainer.innerHTML = '<div style="padding:20px; text-align:center;">목록을 불러오는 중...</div>';
+    document.getElementById('historyModal').style.display = 'block';
+
+    try {
+        // 최신순으로 20개만 가져오기
+        const q = query(collection(db, "users", currentUser.uid, "snapshots"), orderBy("savedAt", "desc"), limit(20));
+        const querySnapshot = await getDocs(q);
+
+        listContainer.innerHTML = ''; // 초기화
+
+        if (querySnapshot.empty) {
+            listContainer.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">저장된 히스토리가 없습니다.</div>';
+            return;
+        }
+
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            const date = new Date(data.savedAt).toLocaleString();
+            
+            // 리스트 아이템 생성
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            item.innerHTML = `
+                <div class="history-info">
+                    <div class="history-date">📅 ${date}</div>
+                    <div class="history-summary">${data.summary || '내용 없음'}</div>
+                </div>
+                <div class="history-actions">
+                    <button class="btn-tool" onclick="window.loadSnapshot('${doc.id}')">불러오기</button>
+                    <button class="delete-btn" onclick="window.deleteSnapshot('${doc.id}')">🗑️</button>
+                </div>
+            `;
+            listContainer.appendChild(item);
+        });
+    } catch (e) {
+        console.error("목록 로드 실패", e);
+        listContainer.innerHTML = '<div style="color:red; text-align:center;">목록을 불러오지 못했습니다.</div>';
+    }
+}
+
+// 3. 특정 스냅샷 불러오기 (복원)
+window.loadSnapshot = async function(docId) {
+    if (!confirm("이 데이터를 불러오시겠습니까?\n현재 작업 중인 내용은 이 데이터로 덮어씌워집니다!")) return;
+
+    try {
+        const docRef = doc(db, "users", currentUser.uid, "snapshots", docId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            library = data.library || [];
+            settings = data.settings || settings;
+            
+            saveLibrary(); // 로컬에 반영
+            renderLibrary(); // 화면 갱신
+            document.getElementById('historyModal').style.display = 'none';
+            alert("복원되었습니다! 과거의 데이터로 돌아왔습니다.");
+        } else {
+            alert("해당 데이터가 존재하지 않습니다.");
+        }
+    } catch (e) {
+        console.error("복원 실패", e);
+        alert("오류 발생: " + e.message);
+    }
+};
+
+// 4. 스냅샷 삭제
+window.deleteSnapshot = async function(docId) {
+    if (!confirm("정말 이 기록을 삭제하시겠습니까?")) return;
+    try {
+        await deleteDoc(doc(db, "users", currentUser.uid, "snapshots", docId));
+        openSnapshotList(); // 목록 새로고침
+    } catch (e) {
+        alert("삭제 실패");
+    }
+};
+
+// 5. 모달 닫기
+window.closeHistoryModal = function() {
+    document.getElementById('historyModal').style.display = 'none';
+};
+
+// 전역 함수로 등록
+window.saveSnapshot = saveSnapshot;
+window.openSnapshotList = openSnapshotList;
+
 
