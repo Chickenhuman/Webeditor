@@ -438,6 +438,7 @@ function createNovel(t) { library.push({ id: Date.now(), title: t, chapters: [{ 
 function deleteNovel(id) { if(!confirm("삭제?")) return; library = library.filter(n => n.id !== id); saveLibrary(); renderLibrary(); }
 
 // [수정됨] 소설 열기 (비밀번호 체크 로직 추가)
+// [수정됨] 소설 열기 (버그 수정 + 주인님 찬스 포함)
 function openNovel(id) {
     const n = library.find(n => n.id === id); 
     if (!n) return;
@@ -445,13 +446,49 @@ function openNovel(id) {
     // [NEW] 비밀번호가 있으면 확인
     if (n.password) {
         const input = prompt("🔒 이 소설은 비밀번호로 보호되어 있습니다.\n비밀번호를 입력하세요:");
-        // 취소했거나 비밀번호가 틀리면 열지 않음
-        if (input === null) return; 
+        
+        // 1. [버그 수정] 취소 버튼을 눌렀을 때 -> 서재 목록으로 튕겨냄
+        if (input === null) {
+            renderLibrary(); // <--- 이게 없어서 멈췄던 것입니다!
+            return; 
+        }
+        
+        // 2. 비밀번호가 틀렸을 때
         if (input !== n.password) {
-            alert("비밀번호가 일치하지 않습니다.");
-            return;
+            // 로그인된 상태인지 확인 (주인님 찬스)
+            if (currentUser) {
+                const useMasterKey = confirm("비밀번호가 일치하지 않습니다.\n\n[주인님 찬스] 👑\n현재 로그인된 계정 권한으로 잠금을 강제 해제하시겠습니까?");
+                if (useMasterKey) {
+                    delete n.password; // 비밀번호 삭제
+                    saveLibrary();
+                    renderLibrary(); // 아이콘 갱신
+                    alert("잠금이 해제되었습니다! 이제 그냥 들어오세요.");
+                    // 여기서 return 하지 않고 아래로 내려가서 소설을 엽니다.
+                } else {
+                    renderLibrary(); // [버그 수정] 거절 시 서재로 이동
+                    return; 
+                }
+            } else {
+                // 비로그인 상태면 얄짤없음
+                alert("비밀번호가 일치하지 않습니다.");
+                renderLibrary(); // [버그 수정] 틀리면 서재로 이동
+                return;
+            }
         }
     }
+
+    // --- 기존 로직 (소설 열기) ---
+    currentNovelId = id; memoTextarea.value = n.memo || '';
+    if (n.chapters.length > 0) currentChapterId = n.chapters[0].id;
+    else { const c = { id: Date.now(), title: '1화', content: '' }; n.chapters.push(c); currentChapterId = c.id; }
+    
+    // 에디터 화면 표시
+    editorWrapper.style.display = 'flex';
+    
+    renderNovelSidebar(); 
+    loadChapter(currentChapterId);
+    undoStack=[]; redoStack=[];
+}
 
     // --- 기존 로직 그대로 실행 ---
     currentNovelId = id; memoTextarea.value = n.memo || '';
