@@ -437,7 +437,7 @@ function createNovelPrompt() { const t = prompt("제목:", "새 작품"); if (t)
 function createNovel(t) { library.push({ id: Date.now(), title: t, chapters: [{ id: Date.now(), title: '1화', content: '' }], memo: '' }); saveLibrary(); renderLibrary(); }
 function deleteNovel(id) { if(!confirm("삭제?")) return; library = library.filter(n => n.id !== id); saveLibrary(); renderLibrary(); }
 
-// [수정됨] 소설 열기 (주인님 찬스 제거 & 멈춤 버그 수정 완료)
+// [수정됨] 소설 열기 (중복 제거 및 최적화 완료)
 function openNovel(id) {
     const n = library.find(n => n.id === id); 
     if (!n) return;
@@ -452,7 +452,7 @@ function openNovel(id) {
             return; 
         }
         
-        // 2. 비밀번호가 틀렸을 때 -> 경고창 띄우고 서재로 쫓아냄 (복구 기능 없음)
+        // 2. 비밀번호가 틀렸을 때 -> 경고창 띄우고 서재로 쫓아냄
         if (input !== n.password) {
             alert("비밀번호가 일치하지 않습니다.");
             renderLibrary(); // [버그 수정] UI 멈춤 방지
@@ -470,30 +470,6 @@ function openNovel(id) {
     
     renderNovelSidebar(); 
     loadChapter(currentChapterId);
-    undoStack=[]; redoStack=[];
-
-
-    // --- 기존 로직 (소설 열기) ---
-    currentNovelId = id; memoTextarea.value = n.memo || '';
-    if (n.chapters.length > 0) currentChapterId = n.chapters[0].id;
-    else { const c = { id: Date.now(), title: '1화', content: '' }; n.chapters.push(c); currentChapterId = c.id; }
-    
-    // 에디터 화면 표시
-    editorWrapper.style.display = 'flex';
-    
-    renderNovelSidebar(); 
-    loadChapter(currentChapterId);
-    undoStack=[]; redoStack=[];
-
-
-    // --- 기존 로직 그대로 실행 ---
-    currentNovelId = id; memoTextarea.value = n.memo || '';
-    if (n.chapters.length > 0) currentChapterId = n.chapters[0].id;
-    else { const c = { id: Date.now(), title: '1화', content: '' }; n.chapters.push(c); currentChapterId = c.id; }
-    
-    editorWrapper.style.display = 'flex';
-    
-    renderNovelSidebar(); loadChapter(currentChapterId);
     undoStack=[]; redoStack=[];
 }
 
