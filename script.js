@@ -570,7 +570,8 @@ function loadChapter(id) {
     } 
 }
 
-
+// [누락된 함수 추가] 챕터 전환
+function switchChapter(id) { performSave(); loadChapter(id); }
 // [수정됨] 저장 로직 (메시지 덮어쓰기 버그 수정)
 function performSave() {
     if (viewMode === 'library') return;
