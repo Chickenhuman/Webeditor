@@ -144,6 +144,7 @@
                 <button onclick="window.downloadAll('docx')" class="btn-tool" style="color:#2b579a; font-weight:bold;">📘 DOCX</button>
             </div>
             <div class="v-divider"></div>
+<button onclick="window.toggleCharacterModal()" class="btn-tool" title="캐릭터 설정집">👥 캐릭터</button>
 <button onclick="window.saveSnapshot()" class="btn-tool" title="새 기록으로 저장 (박제)">📸 기록저장</button>
 <button onclick="window.openSnapshotList()" class="btn-tool" title="저장된 기록 보기">🕰️ 타임머신</button>
             <button onclick="window.backupData()" class="btn-tool">☁️ 백업</button>
@@ -257,6 +258,68 @@
     </div>
 </div>
 
-    <script type="module" src="script.js"></script>
+    <script type="module" src="script.js">
+<div id="characterModal" class="login-overlay" style="display:none; z-index: 6000;">
+    <div class="login-box" style="width: 800px; height: 600px; padding: 0; display: flex; flex-direction: column; overflow: hidden; text-align: left;">
+        
+        <div style="padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #f8f9fa;">
+            <h3 style="margin:0; font-size: 16px;">👥 캐릭터 설정집</h3>
+            <button onclick="window.toggleCharacterModal()" class="btn-close" style="font-size:24px;">×</button>
+        </div>
+
+        <div style="flex: 1; display: flex; overflow: hidden;">
+            
+            <div style="width: 250px; border-right: 1px solid #eee; display: flex; flex-direction: column; background: #fafafa;">
+                <div style="padding: 10px; border-bottom: 1px solid #eee;">
+                    <button onclick="window.addNewCharacter()" class="btn-tool full-width" style="background: var(--primary); color: white;">+ 새 캐릭터 추가</button>
+                </div>
+                <div id="characterList" style="flex: 1; overflow-y: auto; padding: 10px;">
+                    </div>
+            </div>
+
+            <div style="flex: 1; padding: 20px; overflow-y: auto; background: white;">
+                <div id="charDetailForm" style="display:none;">
+                    <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                        <div style="flex: 1;">
+                            <label class="char-label">이름</label>
+                            <input type="text" id="charName" class="char-input" placeholder="캐릭터 이름">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="char-label">나이/성별</label>
+                            <input type="text" id="charAge" class="char-input" placeholder="예: 24세 / 남">
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label class="char-label">역할/포지션</label>
+                        <input type="text" id="charRole" class="char-input" placeholder="예: 주인공, 조력자, 악역...">
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label class="char-label">외모 묘사 / 특징</label>
+                        <textarea id="charAppearance" class="char-textarea" style="height: 80px;" placeholder="검은 머리에 날카로운 눈매..."></textarea>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label class="char-label">성격 및 기타 설정</label>
+                        <textarea id="charPersonality" class="char-textarea" style="height: 150px;" placeholder="상세 설정을 자유롭게 적으세요."></textarea>
+                    </div>
+
+                    <div style="text-align: right;">
+                        <button onclick="window.deleteCurrentCharacter()" class="btn-logout" style="width: auto; padding: 8px 15px; margin-right: 10px;">삭제</button>
+                        <button onclick="window.saveCurrentCharacter()" class="btn-tool primary" style="width: auto; padding: 8px 20px;">저장</button>
+                    </div>
+                </div>
+                
+                <div id="charEmptyState" style="height: 100%; display: flex; align-items: center; justify-content: center; color: #999; flex-direction: column;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">👤</div>
+                    <p>왼쪽에서 캐릭터를 선택하거나<br>새로 추가해주세요.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</script>
 </body>
 </html>

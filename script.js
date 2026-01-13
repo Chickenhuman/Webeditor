@@ -56,6 +56,9 @@ let isHtmlMode = false;
 let viewMode = 'library';
 let currentUser = null;
 let isLoginMode = true; 
+/* ▼▼▼ 전역 변수 영역에 추가 ▼▼▼ */
+let characterList = JSON.parse(localStorage.getItem('characterList')) || []; // 캐릭터 데이터
+let selectedCharId = null; // 현재 선택된 캐릭터 ID
 
 // DOM Elements
 const loginOverlay = document.getElementById('loginOverlay');
@@ -250,7 +253,11 @@ function applyServerData(data) {
         settings = data.settings;
         localStorage.setItem('editorSettings', JSON.stringify(settings));
     }
-    // [NEW] 서버에 저장된 마지막 위치 정보를 로컬에도 반영
+    // [NEW] 서버에서 캐릭터 데이터 불러오기
+    if (data.characters) {
+        characterList = data.characters;
+        localStorage.setItem('characterList', JSON.stringify(characterList));
+    }
     if (data.lastActive) {
         localStorage.setItem('editorLastActive', JSON.stringify(data.lastActive));
     }
@@ -264,8 +271,8 @@ async function saveToCloud() {
         await setDoc(doc(db, "users", currentUser.uid), {
             library: library,
             settings: settings,
+            characters: characterList, // [NEW] 캐릭터 데이터 클라우드 저장
             lastUpdated: now,
-            // [NEW] 현재 열려있는 소설과 챕터 ID 저장
             lastActive: { novelId: currentNovelId, chapterId: currentChapterId }
         });
         localStorage.setItem('localLastUpdated', now);
@@ -600,6 +607,9 @@ function performSave() {
 
 function saveLibrary() { 
     localStorage.setItem('novelLibrary', JSON.stringify(library)); 
+    localStorage.setItem('editorSettings', JSON.stringify(settings));
+    // [NEW] 캐릭터 데이터 로컬 저장
+    localStorage.setItem('characterList', JSON.stringify(characterList)); 
     localStorage.setItem('localLastUpdated', new Date().toISOString());
 }
 
@@ -928,4 +938,104 @@ window.closeHistoryModal = function() {
 window.saveSnapshot = saveSnapshot;
 window.openSnapshotList = openSnapshotList;
 
+// ============================================================
+// [NEW] 캐릭터 설정집 시스템
+// ============================================================
 
+// 1. 모달 토글
+window.toggleCharacterModal = function() {
+    const modal = document.getElementById('characterModal');
+    if (modal.style.display === 'none') {
+        modal.style.display = 'flex';
+        window.renderCharacterList();
+    } else {
+        modal.style.display = 'none';
+        performSave(); // 닫을 때 자동 저장
+    }
+};
+
+// 2. 캐릭터 목록 렌더링
+window.renderCharacterList = function() {
+    const listEl = document.getElementById('characterList');
+    listEl.innerHTML = '';
+
+    characterList.forEach(char => {
+        const div = document.createElement('div');
+        div.className = `char-item ${char.id === selectedCharId ? 'active' : ''}`;
+        div.onclick = () => window.selectCharacter(char.id);
+        
+        div.innerHTML = `
+            <div class="char-avatar">${char.name ? char.name[0] : '?'}</div>
+            <div class="char-info">
+                <div class="char-name">${char.name || '이름 없음'}</div>
+                <div class="char-sub">${char.role || '역할 미정'}</div>
+            </div>
+        `;
+        listEl.appendChild(div);
+    });
+};
+
+// 3. 새 캐릭터 추가
+window.addNewCharacter = function() {
+    const newChar = {
+        id: Date.now(),
+        name: '새 캐릭터',
+        age: '',
+        role: '',
+        appearance: '',
+        personality: ''
+    };
+    characterList.push(newChar);
+    window.selectCharacter(newChar.id);
+    window.renderCharacterList();
+};
+
+// 4. 캐릭터 선택
+window.selectCharacter = function(id) {
+    selectedCharId = id;
+    const char = characterList.find(c => c.id === id);
+    
+    document.getElementById('charDetailForm').style.display = 'block';
+    document.getElementById('charEmptyState').style.display = 'none';
+
+    // 입력창에 값 채우기
+    document.getElementById('charName').value = char.name;
+    document.getElementById('charAge').value = char.age || '';
+    document.getElementById('charRole').value = char.role || '';
+    document.getElementById('charAppearance').value = char.appearance || '';
+    document.getElementById('charPersonality').value = char.personality || '';
+
+    window.renderCharacterList(); // 선택 효과 갱신
+};
+
+// 5. 현재 입력 내용 저장 (입력할 때마다 혹은 저장 버튼 누를 때)
+window.saveCurrentCharacter = function() {
+    if (!selectedCharId) return;
+    const char = characterList.find(c => c.id === selectedCharId);
+    if (!char) return;
+
+    char.name = document.getElementById('charName').value;
+    char.age = document.getElementById('charAge').value;
+    char.role = document.getElementById('charRole').value;
+    char.appearance = document.getElementById('charAppearance').value;
+    char.personality = document.getElementById('charPersonality').value;
+
+    window.renderCharacterList(); // 목록의 이름/역할 갱신
+    alert("캐릭터 설정이 저장되었습니다.");
+    saveLibrary(); // 로컬 및 클라우드 저장 트리거
+};
+
+// 6. 캐릭터 삭제
+window.deleteCurrentCharacter = function() {
+    if (!selectedCharId) return;
+    if (!confirm("정말 이 캐릭터를 삭제하시겠습니까?")) return;
+
+    characterList = characterList.filter(c => c.id !== selectedCharId);
+    selectedCharId = null;
+    
+    document.getElementById('charDetailForm').style.display = 'none';
+    document.getElementById('charEmptyState').style.display = 'flex';
+    
+    window.renderCharacterList();
+    saveLibrary();
+};
