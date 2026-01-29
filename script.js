@@ -829,17 +829,22 @@ async function saveSnapshot() {
     if (!currentUser) return alert("로그인이 필요한 기능입니다.");
     if (!confirm("현재 상태를 클라우드 히스토리에 박제하시겠습니까?\n(기존 데이터는 유지되고, 새로운 기록이 추가됩니다.)")) return;
 
-    try {
+ try {
         const now = new Date();
+        
+        // [수정됨] 라이브러리(library) 전체를 문자열로 만들고 압축합니다.
+        const compressedLibrary = LZString.compressToUTF16(JSON.stringify(library));
+
         const snapshotData = {
-            library: library,
+            // library: library,  <-- 기존 코드 삭제 (원본 저장 X)
+            compressedData: compressedLibrary, // <-- 압축된 데이터 저장
+            isCompressed: true, // 압축 여부 표시
             settings: settings,
             savedAt: now.toISOString(),
-            deviceInfo: navigator.userAgent, // 어떤 기기에서 저장했는지 식별용
+            deviceInfo: navigator.userAgent,
             summary: `소설 ${library.length}개 / ${library.reduce((acc,cur)=>acc+cur.chapters.length,0)}개 챕터`
         };
 
-        // users 컬렉션 -> 내 UID -> snapshots 서브 컬렉션에 추가 (addDoc은 덮어쓰지 않고 추가함)
         await addDoc(collection(db, "users", currentUser.uid, "snapshots"), snapshotData);
         alert("✅ 클라우드 히스토리에 안전하게 저장되었습니다.");
     } catch (e) {
@@ -897,17 +902,28 @@ async function openSnapshotList() {
 window.loadSnapshot = async function(docId) {
     if (!confirm("이 데이터를 불러오시겠습니까?\n현재 작업 중인 내용은 이 데이터로 덮어씌워집니다!")) return;
 
-    try {
+   try {
         const docRef = doc(db, "users", currentUser.uid, "snapshots", docId);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
             const data = docSnap.data();
-            library = data.library || [];
+            
+            // [수정됨] 압축된 데이터인지 확인 후 해제
+            if (data.isCompressed && data.compressedData) {
+                const decompressed = LZString.decompressFromUTF16(data.compressedData);
+                library = JSON.parse(decompressed);
+            } else if (data.library) {
+                // 예전 방식(압축 안 된 데이터)도 호환성 유지
+                library = data.library;
+            } else {
+                library = [];
+            }
+            
             settings = data.settings || settings;
             
-            saveLibrary(); // 로컬에 반영
-            renderLibrary(); // 화면 갱신
+            saveLibrary(); 
+            renderLibrary(); 
             document.getElementById('historyModal').style.display = 'none';
             alert("복원되었습니다! 과거의 데이터로 돌아왔습니다.");
         } else {
