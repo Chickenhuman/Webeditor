@@ -244,16 +244,29 @@ async function syncFromCloud(uid) {
 }
 
 // [수정됨] 서버 데이터 적용 (마지막 작업 위치 동기화)
+// script.js의 applyServerData 함수 전체를 이것으로 교체하세요
 function applyServerData(data) {
-    if (data.library) {
+    // [수정됨] 압축된 데이터인지 확인 후 해제
+    if (data.isCompressed && data.compressedLibrary) {
+        try {
+            const decompressed = LZString.decompressFromUTF16(data.compressedLibrary);
+            library = JSON.parse(decompressed);
+        } catch (e) {
+            console.error("압축 해제 실패", e);
+            // 만약 실패하면 기존 데이터 유지하거나 빈 배열
+        }
+    } else if (data.library) {
+        // 구버전(압축 안 된) 데이터 호환성 유지
         library = data.library;
-        localStorage.setItem('novelLibrary', JSON.stringify(library));
     }
+
+    // 로컬 스토리지에 반영
+    localStorage.setItem('novelLibrary', JSON.stringify(library));
+
     if (data.settings) {
         settings = data.settings;
         localStorage.setItem('editorSettings', JSON.stringify(settings));
     }
-    // [NEW] 서버에서 캐릭터 데이터 불러오기
     if (data.characters) {
         characterList = data.characters;
         localStorage.setItem('characterList', JSON.stringify(characterList));
@@ -261,23 +274,40 @@ function applyServerData(data) {
     if (data.lastActive) {
         localStorage.setItem('editorLastActive', JSON.stringify(data.lastActive));
     }
-    localStorage.setItem('localLastUpdated', data.lastUpdated);
+    
+    // 타임스탬프 업데이트
+    if (data.lastUpdated) {
+        localStorage.setItem('localLastUpdated', data.lastUpdated);
+    }
 }
-
 async function saveToCloud() {
     if (!currentUser) return;
     try {
         const now = new Date().toISOString();
+        
+        // [수정됨] 메인 저장소도 라이브러리를 압축합니다!
+        const compressedLibrary = LZString.compressToUTF16(JSON.stringify(library));
+
         await setDoc(doc(db, "users", currentUser.uid), {
-            library: library,
+            // library: library,  <-- 원본 제거 (용량 초과 원인)
+            compressedLibrary: compressedLibrary, // <-- 압축된 데이터
+            isCompressed: true, // <-- 압축 여부 표시
+            
             settings: settings,
-            characters: characterList, // [NEW] 캐릭터 데이터 클라우드 저장
+            characters: characterList,
             lastUpdated: now,
             lastActive: { novelId: currentNovelId, chapterId: currentChapterId }
         });
         localStorage.setItem('localLastUpdated', now);
-    } catch (e) { console.error("저장 실패", e); }
+    } catch (e) { 
+        console.error("저장 실패", e); 
+        // 용량 초과 시 사용자에게 알림
+        if(e.code === 'resource-exhausted') {
+             alert("⚠️ 저장 실패: 데이터 용량이 너무 큽니다. 불필요한 내용을 정리해주세요.");
+        }
+    }
 }
+
 // ============================================================
 // [5] 에디터 및 히스토리 로직
 // ============================================================
