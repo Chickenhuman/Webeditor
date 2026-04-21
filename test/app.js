@@ -22,6 +22,13 @@ import {
     sanitizeLibrary,
     toSafeText,
 } from "./modules/sanitize.js";
+import {
+    createPasswordLock,
+    isNovelLocked,
+    migrateLegacyPasswordLock,
+    migrateLibraryPasswordLocks,
+    verifyNovelPassword,
+} from "./modules/password.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -337,12 +344,12 @@ function renderLibrary() {
 
         const label = document.createElement("span");
         label.className = "item-title";
-        label.textContent = `${novel.password ? "🔒" : "📘"} ${novel.title}`;
+        label.textContent = `${isNovelLocked(novel) ? "🔒" : "📘"} ${novel.title}`;
 
         const actions = document.createElement("span");
         actions.className = "item-actions";
         actions.append(
-            makeButton(novel.password ? "해제" : "잠금", "mini-btn", "toggle-lock"),
+            makeButton(isNovelLocked(novel) ? "해제" : "잠금", "mini-btn", "toggle-lock"),
             makeButton("삭제", "mini-btn danger", "delete-novel"),
         );
 
@@ -393,7 +400,7 @@ function renderNovelSidebar() {
     });
 }
 
-function createNovel(title) {
+async function createNovel(title) {
     const novel = {
         id: createId("novel"),
         title: toSafeText(title),
@@ -411,36 +418,41 @@ function createNovel(title) {
     currentNovelId = novel.id;
     currentChapterId = novel.chapters[0].id;
     persistLocalState();
-    openNovel(novel.id, { skipLock: true });
+    await openNovel(novel.id, { skipLock: true });
 }
 
-function promptCreateNovel() {
+async function promptCreateNovel() {
     const title = window.prompt("테스트 소설 제목", APP_CONFIG.defaultNovelTitle);
-    if (title?.trim()) createNovel(toSafeText(title.trim()));
+    if (title?.trim()) await createNovel(toSafeText(title.trim()));
 }
 
-function deleteNovel(id) {
+async function deleteNovel(id) {
     if (!window.confirm("선택한 테스트 소설을 삭제할까요?")) return;
     library = library.filter((novel) => novel.id !== id);
     if (!library.length) {
-        createNovel(APP_CONFIG.defaultNovelTitle);
+        await createNovel(APP_CONFIG.defaultNovelTitle);
         return;
     }
     persistLocalState();
     renderLibrary();
 }
 
-function openNovel(id, options = {}) {
+async function openNovel(id, options = {}) {
     const novel = library.find((item) => item.id === id);
     if (!novel) return;
 
-    if (novel.password && !options.skipLock) {
+    if (isNovelLocked(novel) && !options.skipLock) {
         const input = window.prompt(MESSAGES.lockedNovelPrompt);
-        if (input !== novel.password) {
+        if (input === null) {
+            renderLibrary();
+            return;
+        }
+        if (!(await verifyNovelPassword(novel, input))) {
             showToast("비밀번호가 일치하지 않습니다.");
             renderLibrary();
             return;
         }
+        if (await migrateLegacyPasswordLock(novel)) persistLocalState();
     }
 
     currentNovelId = novel.id;
@@ -548,14 +560,15 @@ function performSave() {
     syncMockCloud().catch((error) => console.error("Mock cloud save failed", error));
 }
 
-function toggleLock(id) {
+async function toggleLock(id) {
     const novel = library.find((item) => item.id === id);
     if (!novel) return;
 
-    if (novel.password) {
+    if (isNovelLocked(novel)) {
         const input = window.prompt(MESSAGES.lockedNovelPrompt);
-        if (input === novel.password) {
+        if (await verifyNovelPassword(novel, input)) {
             delete novel.password;
+            delete novel.passwordLock;
             persistLocalState();
             renderLibrary();
             showToast("테스트 잠금이 해제되었습니다.");
@@ -573,7 +586,8 @@ function toggleLock(id) {
         return;
     }
 
-    novel.password = password;
+    novel.passwordLock = await createPasswordLock(password);
+    delete novel.password;
     persistLocalState();
     renderLibrary();
     showToast("테스트 잠금이 설정되었습니다.");
@@ -613,6 +627,24 @@ function insertSymbol(open, close = "") {
             selection.addRange(range);
         }
     }
+    markAsUnsaved();
+}
+
+function pasteClipboardContent(event) {
+    if (isHtmlMode) return;
+
+    const clipboard = event.clipboardData || window.clipboardData;
+    if (!clipboard) return;
+
+    const html = clipboard.getData("text/html");
+    const text = clipboard.getData("text/plain");
+    const safeHtml = html ? sanitizeHtml(html) : "";
+    const content = safeHtml || text;
+    if (!content) return;
+
+    event.preventDefault();
+    recordHistory();
+    document.execCommand(safeHtml ? "insertHTML" : "insertText", false, content);
     markAsUnsaved();
 }
 
@@ -834,7 +866,7 @@ async function loadSnapshot(id) {
     elements.historyModal.classList.remove("open");
     const lastActive = snapshot.data.lastActive;
     if (lastActive?.novelId) {
-        openNovel(lastActive.novelId, { chapterId: lastActive.chapterId, skipLock: true });
+        await openNovel(lastActive.novelId, { chapterId: lastActive.chapterId, skipLock: true });
     } else {
         renderLibrary();
     }
@@ -931,16 +963,16 @@ function deleteCurrentCharacter() {
     setHidden(elements.charEmptyState, false);
 }
 
-function handleSidebarClick(event) {
+async function handleSidebarClick(event) {
     const actionButton = event.target.closest("[data-action]");
     if (!actionButton) return;
     const item = actionButton.closest("[data-id]");
     const id = item?.dataset.id || actionButton.dataset.id;
     const action = actionButton.dataset.action;
 
-    if (action === "open-novel") openNovel(id);
-    if (action === "delete-novel") deleteNovel(id);
-    if (action === "toggle-lock") toggleLock(id);
+    if (action === "open-novel") await openNovel(id);
+    if (action === "delete-novel") await deleteNovel(id);
+    if (action === "toggle-lock") await toggleLock(id);
     if (action === "open-chapter") switchChapter(id);
     if (action === "delete-chapter") deleteChapter(id);
     if (action === "move-chapter-up") moveChapter(id, -1);
@@ -983,8 +1015,8 @@ function handleChapterDragOver(event) {
 }
 
 function bindEvents() {
-    elements.sidebarActionBtn.addEventListener("click", () => {
-        if (viewMode === "library") promptCreateNovel();
+    elements.sidebarActionBtn.addEventListener("click", async () => {
+        if (viewMode === "library") await promptCreateNovel();
         else addNewChapter();
     });
     elements.libraryHomeBtn.addEventListener("click", () => {
@@ -1020,7 +1052,7 @@ function bindEvents() {
     }
 
     elements.btnSave.addEventListener("click", performSave);
-    elements.btnResetTestData.addEventListener("click", () => {
+    elements.btnResetTestData.addEventListener("click", async () => {
         if (!window.confirm(MESSAGES.testDataResetConfirm)) return;
         const state = normalizeState(resetTestData());
         library = state.library;
@@ -1028,7 +1060,7 @@ function bindEvents() {
         characters = state.characters;
         applySettings();
         renderSymbols();
-        openNovel(state.lastActive.novelId, { chapterId: state.lastActive.chapterId, skipLock: true });
+        await openNovel(state.lastActive.novelId, { chapterId: state.lastActive.chapterId, skipLock: true });
         showToast("테스트 데이터가 초기화되었습니다.");
     });
 
@@ -1094,13 +1126,7 @@ function bindEvents() {
             historyDebounceTimer = null;
         }, 1000);
     });
-    elements.editor.addEventListener("paste", (event) => {
-        if (isHtmlMode) return;
-        event.preventDefault();
-        recordHistory();
-        document.execCommand("insertText", false, (event.clipboardData || window.clipboardData).getData("text/plain"));
-        markAsUnsaved();
-    });
+    elements.editor.addEventListener("paste", pasteClipboardContent);
     elements.htmlEditor.addEventListener("input", markAsUnsaved);
     elements.autoSaveInput.addEventListener("change", startAutoSaveTimer);
     elements.targetCountInput.addEventListener("input", () => {
@@ -1158,6 +1184,7 @@ function bindEvents() {
 async function init() {
     bindEvents();
     currentUser = await cloud.signIn();
+    if (await migrateLibraryPasswordLocks(library)) persistLocalState();
     elements.userInfoDisplay.textContent = `${currentUser.displayName}님 (Mock Cloud)`;
     renderVersion();
     renderStorageGuard();
@@ -1168,9 +1195,9 @@ async function init() {
     const lastActive = initialState.lastActive;
     const targetNovel = library.find((novel) => novel.id === lastActive?.novelId) || library[0];
     if (targetNovel) {
-        openNovel(targetNovel.id, { chapterId: lastActive?.chapterId, skipLock: true });
+        await openNovel(targetNovel.id, { chapterId: lastActive?.chapterId, skipLock: true });
     } else {
-        createNovel(APP_CONFIG.defaultNovelTitle);
+        await createNovel(APP_CONFIG.defaultNovelTitle);
     }
     await syncMockCloud(MESSAGES.testModeReady);
     showToast(MESSAGES.testModeReady);

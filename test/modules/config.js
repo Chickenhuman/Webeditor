@@ -85,8 +85,13 @@ export const SAMPLE_LIBRARY = [
     {
         id: "sample-novel-2",
         title: "샘플 잠금 원고",
-        memo: "잠금 흐름 검증용입니다. 비밀번호는 1234입니다.",
-        password: "1234",
+        memo: "잠금 흐름 검증용입니다. 비밀번호는 1234입니다. 저장값은 hash 잠금입니다.",
+        passwordLock: {
+            version: 1,
+            algorithm: "SHA-256",
+            salt: "webeditor-test-sample-lock-v1",
+            hash: "cce0f77b342811c526664f00752a44761d0f259d6b5638cd527ad5ed9dd676d7",
+        },
         chapters: [
             {
                 id: "sample-chapter-locked-1",
