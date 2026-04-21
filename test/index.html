@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web Novel Editor - Test Mode</title>
+    <link rel="stylesheet" href="../style.css">
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -12,193 +13,224 @@
 
     <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-            <button id="libraryHomeBtn" class="btn-home is-hidden" type="button" title="테스트 서재로 이동">⌂</button>
-            <div>
-                <span id="modeBadge" class="mode-badge">TEST</span>
-                <h1 id="sidebarTitle">테스트 서재</h1>
+            <div class="header-left">
+                <button id="libraryHomeBtn" class="btn-home is-hidden" type="button" title="테스트 서재로 이동">🏠</button>
+                <div class="test-title-stack">
+                    <span id="modeBadge" class="mode-badge">TEST MODE</span>
+                    <h3 id="sidebarTitle">테스트 서재</h3>
+                </div>
             </div>
-            <button id="sidebarActionBtn" class="add-btn" type="button" data-testid="sidebar-action">+</button>
+            <button id="sidebarActionBtn" class="add-btn" type="button" title="추가" data-testid="sidebar-action">+</button>
         </div>
 
         <ul id="sidebarList" class="sidebar-list" aria-label="테스트 소설 및 챕터 목록"></ul>
 
         <div class="sidebar-footer">
-            <strong id="userInfoDisplay"></strong>
+            <div id="userInfoDisplay"></div>
             <span id="sidebarStatus"></span>
             <span id="productionStorageState" class="storage-guard"></span>
-            <button id="btnResetTestData" class="btn-outline danger" type="button">테스트 데이터 초기화</button>
+            <button id="btnResetTestData" class="btn-logout" type="button">테스트 데이터 초기화</button>
             <a class="launcher-link" href="../launcher.html">모드 선택으로 돌아가기</a>
-            <span id="versionDisplay" class="version-text"></span>
+            <div id="versionDisplay" class="version-text"></div>
         </div>
     </aside>
 
     <main id="appShell" class="main-area">
-        <header class="top-bar">
-            <button id="btnMobileMenu" class="btn-tool mobile-only" type="button" title="메뉴">☰</button>
+        <div class="top-bar">
+            <button id="btnMobileMenu" class="btn-tool mobile-only btn-mobile-menu" type="button">☰</button>
 
             <div class="toolbar-group">
-                <button id="btnSave" class="btn-tool primary" type="button" data-testid="save-button">저장</button>
-                <label class="autosave-control">
-                    <span>자동</span>
-                    <input type="number" id="autoSaveIntervalInput" min="1" value="3" aria-label="자동 저장 분">
-                    <span>분</span>
-                </label>
+                <button id="btnSave" class="btn-tool primary" type="button" title="즉시 저장" data-testid="save-button">💾 <span class="desktop-only">저장</span></button>
+                <div class="autosave-control">
+                    <span class="label">자동</span>
+                    <input type="number" id="autoSaveIntervalInput" value="3" min="1" aria-label="자동 저장 분">
+                    <span class="unit">분</span>
+                </div>
                 <div class="save-status">
-                    <span id="unsavedDot" class="unsaved-dot"></span>
-                    <span id="lastSavedDisplay">준비됨</span>
+                    <span class="unsaved-dot" id="unsavedDot"></span>
+                    <span id="lastSavedDisplay" class="status-text">준비됨</span>
                 </div>
             </div>
 
             <div class="toolbar-group settings-group">
                 <button id="btnSettings" class="btn-tool" type="button">줄바꿈</button>
                 <div id="settingsPopup" class="settings-popup" role="dialog" aria-label="줄바꿈 설정">
-                    <label>
-                        <span>줄바꿈 방식</span>
-                        <select id="lineBreakOption">
+                    <div class="popup-row">
+                        <span class="popup-label">줄바꿈 방식</span>
+                        <select id="lineBreakOption" class="dropdown">
                             <option value="1">엔터 1번</option>
                             <option value="2">엔터 2번</option>
                         </select>
-                    </label>
-                    <label class="checkbox-row">
-                        <span>(...) 후 띄어쓰기 무시</span>
-                        <input type="checkbox" id="ignoreEllipsis" checked>
-                    </label>
-                    <button id="btnRunLineBreak" class="btn-tool full-width" type="button">줄바꿈 일괄 정리</button>
+                    </div>
+                    <div class="popup-row">
+                        <label class="checkbox-label popup-checkbox">
+                            <span>(...) 후 띄어쓰기 무시</span>
+                            <input type="checkbox" id="ignoreEllipsis" checked>
+                        </label>
+                    </div>
+                    <hr class="popup-divider">
+                    <button id="btnRunLineBreak" class="btn-tool full-width" type="button">↵ 줄바꿈 일괄 정리 실행</button>
                 </div>
             </div>
 
-            <nav class="toolbar-group right" aria-label="테스트 도구">
-                <button id="btnMemo" class="btn-tool" type="button">메모</button>
-                <button id="btnHtmlMode" class="btn-tool code-btn" type="button">&lt;/&gt;</button>
-                <button id="btnExportTxt" class="btn-tool" type="button">TXT</button>
-                <button id="btnExportDocx" class="btn-tool docx" type="button">DOCX</button>
-                <button id="btnCharacters" class="btn-tool" type="button">캐릭터</button>
-                <button id="btnSnapshotSave" class="btn-tool" type="button">스냅샷 저장</button>
-                <button id="btnSnapshots" class="btn-tool" type="button">스냅샷</button>
-                <button id="btnBackup" class="btn-tool" type="button">백업</button>
-                <button id="btnTheme" class="btn-tool icon-btn" type="button">☾</button>
-                <button id="btnFileOpen" class="btn-tool icon-btn" type="button" title="TXT 파일 열기">📂</button>
-                <button id="btnBackupRestore" class="btn-tool icon-btn" type="button" title="백업 복원">♻</button>
-            </nav>
+            <div class="toolbar-group right">
+                <button id="btnMoreMenu" class="btn-tool icon-btn mobile-toggle-btn" type="button">⋮</button>
 
-            <input type="file" id="fileInput" class="visually-hidden" accept=".txt">
-            <input type="file" id="backupInput" class="visually-hidden" accept=".json">
-        </header>
+                <div id="rightToolbarItems" class="right-items-wrapper">
+                    <button id="btnMemo" class="btn-tool icon-btn" type="button" title="메모장">📝</button>
+                    <div class="v-divider"></div>
+                    <button id="btnHtmlMode" class="btn-tool code-btn" type="button" title="HTML 모드">&lt;/&gt;</button>
 
-        <section id="editorWrapper" class="editor-wrapper" aria-label="테스트 에디터">
-            <input id="titleInput" class="chapter-title-input" type="text" placeholder="챕터 제목">
+                    <div class="export-group">
+                        <button id="btnExportTxt" class="btn-tool" type="button">📄 TXT</button>
+                        <button id="btnExportDocx" class="btn-tool docx-export" type="button">📘 DOCX</button>
+                    </div>
+                    <div class="v-divider"></div>
+                    <button id="btnCharacters" class="btn-tool" type="button" title="캐릭터 설정집">👥 캐릭터</button>
+                    <button id="btnSnapshotSave" class="btn-tool" type="button" title="새 mock 기록으로 저장">📸 기록저장</button>
+                    <button id="btnSnapshots" class="btn-tool" type="button" title="저장된 mock 기록 보기">🕰️ 타임머신</button>
+                    <button id="btnBackup" class="btn-tool" type="button">☁️ 백업</button>
+                    <button id="btnTheme" class="btn-tool icon-btn" type="button">🌙</button>
 
-            <div id="formatToolbar" class="format-toolbar" aria-label="서식 도구">
-                <button class="btn-format" type="button" data-command="bold"><b>B</b></button>
-                <button class="btn-format" type="button" data-command="italic"><i>I</i></button>
-                <button class="btn-format" type="button" data-command="underline"><u>U</u></button>
-                <button class="btn-format" type="button" data-command="strikeThrough"><s>S</s></button>
-                <span class="divider-line"></span>
-                <div id="symbolGroup" class="symbol-group"></div>
-                <button id="btnSymbolEditor" class="btn-edit-symbol" type="button">기호 편집</button>
+                    <input type="file" id="fileInput" class="visually-hidden" accept=".txt">
+                    <input type="file" id="backupInput" class="visually-hidden" accept=".json">
+
+                    <button id="btnFileOpen" class="btn-tool icon-btn" type="button" title="파일 열기">📂</button>
+                    <button id="btnBackupRestore" class="btn-tool icon-btn" type="button" title="백업 복원">♻️</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="editor-wrapper" id="editorWrapper">
+            <input type="text" id="titleInput" class="chapter-title-input" placeholder="제목을 입력하세요">
+
+            <div class="format-toolbar" id="formatToolbar">
+                <div class="format-group">
+                    <button class="btn-format" type="button" data-command="bold"><b>B</b></button>
+                    <button class="btn-format" type="button" data-command="italic"><i>I</i></button>
+                    <button class="btn-format" type="button" data-command="underline"><u>U</u></button>
+                    <button class="btn-format" type="button" data-command="strikeThrough"><s>S</s></button>
+                </div>
+
+                <div class="v-divider small"></div>
+                <div class="symbol-group" id="symbolGroup"></div>
+                <button id="btnSymbolEditor" class="btn-edit-symbol" type="button" title="기호 편집">✏️</button>
             </div>
 
-            <div id="symbolEditModal" class="floating-modal" role="dialog" aria-label="자주 쓰는 기호 설정">
+            <div id="symbolEditModal" class="search-modal symbol-modal" role="dialog" aria-label="자주 쓰는 기호 설정">
                 <div class="modal-header">
-                    <strong>자주 쓰는 기호 설정</strong>
-                    <button id="btnCloseSymbolEditor" class="btn-close" type="button">×</button>
+                    <span>자주 쓰는 기호 설정</span>
+                    <button id="btnCloseSymbolEditor" class="btn-close-modal" type="button">×</button>
                 </div>
-                <p>콤마로 구분합니다. 2글자는 앞뒤로 감싸고, 1글자는 그대로 삽입됩니다.</p>
-                <textarea id="symbolInput" rows="4"></textarea>
-                <button id="btnSaveSymbols" class="btn-tool primary full-width" type="button">저장 및 적용</button>
+                <div class="modal-body">
+                    <p class="modal-help">콤마(,)로 구분해서 입력하세요.<br>2글자는 앞뒤로 감싸고, 1글자는 그대로 삽입됩니다.</p>
+                    <textarea id="symbolInput" class="symbol-input"></textarea>
+                    <button id="btnSaveSymbols" class="btn-replace" type="button">저장 및 적용</button>
+                </div>
             </div>
 
             <div class="editor-scroll-area">
-                <div id="mainEditor" class="editor" contenteditable="true" role="textbox" aria-multiline="true" data-testid="main-editor" data-placeholder="테스트 원고를 작성하세요."></div>
+                <div id="mainEditor" class="editor" contenteditable="true" role="textbox" aria-multiline="true" data-testid="main-editor" placeholder="여기에 소설을 작성하세요..."></div>
                 <textarea id="htmlSourceEditor" class="html-editor is-hidden" aria-label="HTML 소스"></textarea>
             </div>
-        </section>
+        </div>
 
-        <footer class="bottom-panel">
+        <div class="bottom-panel">
             <div class="goal-container">
-                <label>
-                    <span>목표 기준</span>
-                    <select id="goalTypeSelect">
-                        <option value="space">공백 포함</option>
-                        <option value="nospace">공백 제외</option>
+                <div class="goal-info">
+                    <select id="goalTypeSelect" class="goal-select">
+                        <option value="space">공포</option>
+                        <option value="nospace">공제</option>
                     </select>
-                </label>
-                <label>
-                    <span>목표</span>
-                    <input id="targetCountInput" type="number" min="1" step="500" value="5000">
-                </label>
-                <strong id="goalPercentage">0%</strong>
-                <div class="progress-track" aria-hidden="true">
+                    <span class="label">목표:</span>
+                    <input type="number" id="targetCountInput" value="5000" step="500" class="goal-input">
+                    <span id="goalPercentage" class="percent-text">0%</span>
+                </div>
+                <div class="progress-track">
                     <div id="goalProgressBar" class="progress-fill"></div>
                 </div>
             </div>
             <div class="status-bar">
-                <button id="btnSearch" class="btn-status-tool" type="button">찾기/바꾸기</button>
+                <button id="btnSearch" class="btn-status-tool" type="button">🔍 찾기/바꾸기</button>
+                <span id="modeDisplay" class="mode-text">테스트 모드</span>
                 <div class="count-info">
                     <span>공백 포함 <strong id="charCount">0</strong>자</span>
+                    <span class="divider">|</span>
                     <span>공백 제외 <strong id="charCountNoSpace">0</strong>자</span>
                 </div>
             </div>
-        </footer>
+        </div>
     </main>
 
-    <aside id="memoPanel" class="memo-panel" aria-label="테스트 메모장">
+    <aside id="memoPanel" class="memo-panel">
         <div class="panel-header">
-            <strong>메모장</strong>
+            <h4>📝 메모장</h4>
             <button id="btnCloseMemo" class="btn-close" type="button">×</button>
         </div>
-        <textarea id="memoTextarea" class="memo-content" placeholder="테스트 전용 메모"></textarea>
+        <textarea id="memoTextarea" class="memo-content" placeholder="이 소설의 설정, 아이디어를 적어두세요."></textarea>
     </aside>
 
-    <section id="searchModal" class="search-modal" role="dialog" aria-label="찾기 및 바꾸기">
+    <div id="searchModal" class="search-modal" role="dialog" aria-label="찾기 및 바꾸기">
         <div class="modal-header">
-            <strong>찾기 및 바꾸기</strong>
-            <button id="btnCloseSearch" class="btn-close" type="button">×</button>
+            <span>찾기 및 바꾸기</span>
+            <button id="btnCloseSearch" class="btn-close-modal" type="button">×</button>
         </div>
-        <input id="findInput" type="text" placeholder="찾을 내용">
-        <input id="replaceInput" type="text" placeholder="바꿀 내용">
-        <button id="btnReplaceAll" class="btn-tool primary full-width" type="button">모두 바꾸기</button>
-    </section>
+        <div class="modal-body">
+            <input type="text" id="findInput" placeholder="찾을 내용">
+            <input type="text" id="replaceInput" placeholder="바꿀 내용">
+            <button id="btnReplaceAll" class="btn-replace" type="button">모두 바꾸기</button>
+        </div>
+    </div>
 
-    <section id="historyModal" class="overlay-modal" role="dialog" aria-label="Mock 스냅샷 목록">
-        <div class="modal-card history-card">
-            <div class="modal-header">
-                <strong>Mock 클라우드 스냅샷</strong>
+    <div id="historyModal" class="login-overlay overlay-modal" role="dialog" aria-label="Mock 스냅샷 목록">
+        <div class="login-box history-box">
+            <div class="test-modal-header">
+                <h3>🕰️ Mock 클라우드 타임머신</h3>
                 <button id="btnCloseHistory" class="btn-close" type="button">×</button>
             </div>
+            <p class="modal-help">테스트 모드에서만 저장되는 mock 기록입니다. 운영 클라우드에는 반영되지 않습니다.</p>
             <div id="snapshotList" class="snapshot-list"></div>
         </div>
-    </section>
+    </div>
 
-    <section id="characterModal" class="overlay-modal" role="dialog" aria-label="캐릭터 설정집">
-        <div class="modal-card character-card">
-            <div class="modal-header">
-                <strong>캐릭터 설정집</strong>
+    <div id="characterModal" class="login-overlay overlay-modal character-overlay" role="dialog" aria-label="캐릭터 설정집">
+        <div class="login-box character-box">
+            <div class="test-modal-header character-header">
+                <h3>👥 캐릭터 설정집</h3>
                 <button id="btnCloseCharacters" class="btn-close" type="button">×</button>
             </div>
+
             <div class="character-layout">
-                <aside class="character-sidebar">
-                    <button id="btnAddCharacter" class="btn-tool primary full-width" type="button">새 캐릭터 추가</button>
-                    <div id="characterList" class="character-list"></div>
-                </aside>
-                <form id="charDetailForm" class="character-form is-hidden">
-                    <label>이름 <input id="charName" type="text"></label>
-                    <label>나이/성별 <input id="charAge" type="text"></label>
-                    <label>역할/포지션 <input id="charRole" type="text"></label>
-                    <label>외모 묘사 <textarea id="charAppearance" rows="4"></textarea></label>
-                    <label>성격 및 기타 설정 <textarea id="charPersonality" rows="6"></textarea></label>
-                    <div class="form-actions">
-                        <button id="btnDeleteCharacter" class="btn-outline danger" type="button">삭제</button>
-                        <button id="btnSaveCharacter" class="btn-tool primary" type="button">저장</button>
+                <div class="character-sidebar">
+                    <div class="character-action-bar">
+                        <button id="btnAddCharacter" class="btn-tool full-width test-primary-tool" type="button">+ 새 캐릭터 추가</button>
                     </div>
-                </form>
-                <div id="charEmptyState" class="empty-state">
-                    <strong>캐릭터를 선택하세요</strong>
-                    <span>왼쪽 목록에서 선택하거나 새 캐릭터를 추가합니다.</span>
+                    <div id="characterList" class="character-list"></div>
+                </div>
+
+                <div class="character-detail">
+                    <form id="charDetailForm" class="character-form is-hidden">
+                        <div class="char-grid">
+                            <label class="char-label">이름 <input type="text" id="charName" class="char-input" placeholder="캐릭터 이름"></label>
+                            <label class="char-label">나이/성별 <input type="text" id="charAge" class="char-input" placeholder="예: 24세 / 남"></label>
+                        </div>
+                        <label class="char-label">역할/포지션 <input type="text" id="charRole" class="char-input" placeholder="예: 주인공, 조력자, 악역..."></label>
+                        <label class="char-label">외모 묘사 / 특징 <textarea id="charAppearance" class="char-textarea short" placeholder="검은 머리에 날카로운 눈매..."></textarea></label>
+                        <label class="char-label">성격 및 기타 설정 <textarea id="charPersonality" class="char-textarea tall" placeholder="상세 설정을 자유롭게 적으세요."></textarea></label>
+                        <div class="character-actions">
+                            <button id="btnDeleteCharacter" class="btn-logout inline-danger" type="button">삭제</button>
+                            <button id="btnSaveCharacter" class="btn-tool primary" type="button">저장</button>
+                        </div>
+                    </form>
+
+                    <div id="charEmptyState" class="char-empty-state">
+                        <div class="empty-icon">👤</div>
+                        <p>왼쪽에서 캐릭터를 선택하거나<br>새로 추가해주세요.</p>
+                    </div>
                 </div>
             </div>
         </div>
-    </section>
+    </div>
 
     <script type="module" src="./app.js"></script>
 </body>

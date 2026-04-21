@@ -50,6 +50,8 @@ const elements = {
     btnTheme: $("btnTheme"),
     btnFileOpen: $("btnFileOpen"),
     btnBackupRestore: $("btnBackupRestore"),
+    btnMoreMenu: $("btnMoreMenu"),
+    rightToolbarItems: $("rightToolbarItems"),
     fileInput: $("fileInput"),
     backupInput: $("backupInput"),
     editorWrapper: $("editorWrapper"),
@@ -975,6 +977,20 @@ function bindEvents() {
         elements.sidebar.classList.remove("open");
         elements.mobileOverlay.classList.remove("active");
     });
+    if (elements.btnMoreMenu && elements.rightToolbarItems) {
+        elements.btnMoreMenu.addEventListener("click", (event) => {
+            event.stopPropagation();
+            elements.rightToolbarItems.classList.toggle("show");
+        });
+        elements.rightToolbarItems.addEventListener("click", () => {
+            if (window.innerWidth <= 768) elements.rightToolbarItems.classList.remove("show");
+        });
+        document.addEventListener("click", (event) => {
+            if (!elements.rightToolbarItems.contains(event.target) && !elements.btnMoreMenu.contains(event.target)) {
+                elements.rightToolbarItems.classList.remove("show");
+            }
+        });
+    }
 
     elements.btnSave.addEventListener("click", performSave);
     elements.btnResetTestData.addEventListener("click", () => {
