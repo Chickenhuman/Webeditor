@@ -94,6 +94,17 @@ test("launcher opens isolated test mode without touching production storage", as
     await expect(page.locator("#userInfoDisplay")).toContainText("Mock Cloud");
     await expect(page.locator("#sidebarTitle")).toContainText("샘플 판타지 원고");
 
+    await page.locator("#btnSettings").click();
+    const popupBox = await page.locator("#settingsPopup").boundingBox();
+    const toolbarBox = await page.locator(".top-bar").boundingBox();
+    const editorBox = await page.locator("#editorWrapper").boundingBox();
+    expect(popupBox).not.toBeNull();
+    expect(toolbarBox).not.toBeNull();
+    expect(editorBox).not.toBeNull();
+    expect(popupBox.y).toBeGreaterThan(toolbarBox.y);
+    expect(popupBox.y).toBeLessThan(editorBox.y + 80);
+    await page.locator("#btnRunLineBreak").click();
+
     await page.locator("#mainEditor").fill("회귀 테스트 원고입니다.");
     await page.locator("#titleInput").fill("회귀 테스트 챕터");
     await page.getByTestId("save-button").click();

@@ -290,6 +290,8 @@ button {
 }
 
 .top-bar {
+    position: relative;
+    z-index: 100;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -363,6 +365,7 @@ body.dark-mode .top-bar {
 
 .settings-group {
     position: relative;
+    z-index: 120;
 }
 
 .settings-popup,
@@ -370,7 +373,7 @@ body.dark-mode .top-bar {
 .search-modal {
     position: absolute;
     display: none;
-    z-index: 90;
+    z-index: 220;
     width: 260px;
     padding: 14px;
     border: 1px solid var(--border);
@@ -380,9 +383,11 @@ body.dark-mode .top-bar {
 }
 
 .settings-popup {
-    top: 44px;
+    top: calc(100% + 10px);
     left: 0;
     gap: 10px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
 }
 
 .settings-popup.open,
