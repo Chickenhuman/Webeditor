@@ -15,6 +15,13 @@ import {
     saveLibrary,
     saveSettings,
 } from "./modules/storage.js";
+import {
+    escapeHtml,
+    sanitizeCharacters,
+    sanitizeHtml,
+    sanitizeLibrary,
+    toSafeText,
+} from "./modules/sanitize.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -103,7 +110,7 @@ const elements = {
 };
 
 const cloud = createCloudMock();
-const initialState = loadTestState();
+const initialState = normalizeState(loadTestState());
 
 let library = initialState.library;
 let settings = initialState.settings;
@@ -120,6 +127,14 @@ let historyDebounceTimer = null;
 let undoStack = [];
 let redoStack = [];
 let draggedChapterId = null;
+
+function normalizeState(state) {
+    return {
+        ...state,
+        library: sanitizeLibrary(state.library),
+        characters: sanitizeCharacters(state.characters),
+    };
+}
 
 function setHidden(element, hidden) {
     if (!element) return;
@@ -148,6 +163,8 @@ function getLastActive() {
 }
 
 function persistLocalState() {
+    library = sanitizeLibrary(library);
+    characters = sanitizeCharacters(characters);
     saveLibrary(library);
     saveSettings(settings);
     saveCharacters(characters);
@@ -234,7 +251,7 @@ function updateGoalProgress(countWithSpace = Number(elements.charCount.textConte
 }
 
 function recordHistory() {
-    const content = isHtmlMode ? elements.htmlEditor.value : elements.editor.innerHTML;
+    const content = isHtmlMode ? sanitizeHtml(elements.htmlEditor.value) : sanitizeHtml(elements.editor.innerHTML);
     if (undoStack.at(-1) === content) return;
     undoStack.push(content);
     if (undoStack.length > APP_CONFIG.maxHistory) undoStack.shift();
@@ -242,10 +259,11 @@ function recordHistory() {
 }
 
 function applyHistoryContent(content) {
+    const safeContent = sanitizeHtml(content);
     if (isHtmlMode) {
-        elements.htmlEditor.value = content;
+        elements.htmlEditor.value = safeContent;
     } else {
-        elements.editor.innerHTML = content;
+        elements.editor.innerHTML = safeContent;
     }
     markAsUnsaved();
     updateCount();
@@ -253,31 +271,35 @@ function applyHistoryContent(content) {
 
 function performUndo() {
     if (!undoStack.length) return;
-    redoStack.push(isHtmlMode ? elements.htmlEditor.value : elements.editor.innerHTML);
+    redoStack.push(isHtmlMode ? sanitizeHtml(elements.htmlEditor.value) : sanitizeHtml(elements.editor.innerHTML));
     applyHistoryContent(undoStack.pop());
 }
 
 function performRedo() {
     if (!redoStack.length) return;
-    undoStack.push(isHtmlMode ? elements.htmlEditor.value : elements.editor.innerHTML);
+    undoStack.push(isHtmlMode ? sanitizeHtml(elements.htmlEditor.value) : sanitizeHtml(elements.editor.innerHTML));
     applyHistoryContent(redoStack.pop());
 }
 
 function syncEditorFromHtmlMode() {
     if (isHtmlMode) {
-        elements.editor.innerHTML = elements.htmlEditor.value;
+        const safeHtml = sanitizeHtml(elements.htmlEditor.value);
+        elements.htmlEditor.value = safeHtml;
+        elements.editor.innerHTML = safeHtml;
     }
 }
 
 function setHtmlMode(enabled) {
     isHtmlMode = enabled;
     if (isHtmlMode) {
-        elements.htmlEditor.value = elements.editor.innerHTML;
+        elements.htmlEditor.value = sanitizeHtml(elements.editor.innerHTML);
         setHidden(elements.editor, true);
         setHidden(elements.htmlEditor, false);
         elements.btnHtmlMode.classList.add("active");
     } else {
-        elements.editor.innerHTML = elements.htmlEditor.value;
+        const safeHtml = sanitizeHtml(elements.htmlEditor.value);
+        elements.htmlEditor.value = safeHtml;
+        elements.editor.innerHTML = safeHtml;
         setHidden(elements.htmlEditor, true);
         setHidden(elements.editor, false);
         elements.btnHtmlMode.classList.remove("active");
@@ -374,7 +396,7 @@ function renderNovelSidebar() {
 function createNovel(title) {
     const novel = {
         id: createId("novel"),
-        title,
+        title: toSafeText(title),
         memo: "",
         chapters: [
             {
@@ -394,7 +416,7 @@ function createNovel(title) {
 
 function promptCreateNovel() {
     const title = window.prompt("테스트 소설 제목", APP_CONFIG.defaultNovelTitle);
-    if (title?.trim()) createNovel(title.trim());
+    if (title?.trim()) createNovel(toSafeText(title.trim()));
 }
 
 function deleteNovel(id) {
@@ -433,7 +455,7 @@ function openNovel(id, options = {}) {
     currentChapterId = options.chapterId && novel.chapters.some((chapter) => chapter.id === options.chapterId)
         ? options.chapterId
         : novel.chapters[0].id;
-    elements.memoTextarea.value = novel.memo || "";
+    elements.memoTextarea.value = toSafeText(novel.memo);
     renderNovelSidebar();
     loadChapter(currentChapterId);
 }
@@ -488,9 +510,11 @@ function loadChapter(id) {
 
     if (isHtmlMode) setHtmlMode(false);
     currentChapterId = id;
-    elements.titleInput.value = chapter.title || "";
-    elements.editor.innerHTML = chapter.content || "";
-    elements.htmlEditor.value = chapter.content || "";
+    const safeContent = sanitizeHtml(chapter.content);
+    chapter.content = safeContent;
+    elements.titleInput.value = toSafeText(chapter.title);
+    elements.editor.innerHTML = safeContent;
+    elements.htmlEditor.value = safeContent;
     undoStack = [];
     redoStack = [];
     updateSavedIndicator(MESSAGES.ready);
@@ -514,9 +538,11 @@ function performSave() {
     }
 
     syncEditorFromHtmlMode();
-    chapter.title = elements.titleInput.value.trim() || "무제";
-    chapter.content = elements.editor.innerHTML;
-    novel.memo = elements.memoTextarea.value;
+    chapter.title = toSafeText(elements.titleInput.value.trim() || "무제");
+    chapter.content = sanitizeHtml(elements.editor.innerHTML);
+    elements.editor.innerHTML = chapter.content;
+    elements.htmlEditor.value = chapter.content;
+    novel.memo = toSafeText(elements.memoTextarea.value);
     persistLocalState();
     updateSavedIndicator(MESSAGES.savedLocal);
     syncMockCloud().catch((error) => console.error("Mock cloud save failed", error));
@@ -613,8 +639,8 @@ function findAndReplace() {
     if (!find || isHtmlMode) return;
     if (!window.confirm(MESSAGES.replaceConfirm)) return;
 
-    const before = elements.editor.innerHTML;
-    const after = before.split(find).join(replace);
+    const before = sanitizeHtml(elements.editor.innerHTML);
+    const after = sanitizeHtml(before.split(find).join(replace));
     if (before === after) {
         showToast(MESSAGES.replaceNone);
         return;
@@ -632,8 +658,8 @@ function autoLineBreak() {
     const lineBreak = elements.lineBreakOption.value === "2" ? "<br><br>" : "<br>";
     const ignoreEllipsis = elements.ignoreEllipsis.checked;
     const pattern = ignoreEllipsis ? /(?<!\.)\.(\s|&nbsp;)/g : /\.(\s|&nbsp;)/g;
-    const before = elements.editor.innerHTML;
-    const after = before.replace(pattern, `.${lineBreak}`);
+    const before = sanitizeHtml(elements.editor.innerHTML);
+    const after = sanitizeHtml(before.replace(pattern, `.${lineBreak}`));
 
     if (before === after) {
         showToast("변경할 문장이 없습니다.");
@@ -665,15 +691,16 @@ function downloadAll(format) {
         const divider = "\n\n====================\n\n";
         const text = novel.chapters.map((chapter) => {
             const tmp = document.createElement("div");
-            tmp.innerHTML = chapter.content.replace(/<br\s*\/?>/gi, "\n");
+            tmp.innerHTML = sanitizeHtml(chapter.content).replace(/<br\s*\/?>/gi, "\n");
             return `[${chapter.title}]\n\n${tmp.textContent}`;
         }).join(divider);
         saveBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), `${novel.title}.txt`);
         return;
     }
 
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${novel.title}</title></head><body>${
-        novel.chapters.map((chapter) => `<h1>${chapter.title}</h1>${chapter.content}`).join("<hr>")
+    const title = escapeHtml(novel.title);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${
+        novel.chapters.map((chapter) => `<h1>${escapeHtml(chapter.title)}</h1>${sanitizeHtml(chapter.content)}`).join("<hr>")
     }</body></html>`;
     saveBlob(new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), `${novel.title}.docx`);
 }
@@ -698,9 +725,9 @@ function restoreData(event) {
     reader.onload = () => {
         try {
             const data = JSON.parse(reader.result);
-            library = Array.isArray(data.library) ? data.library : library;
+            library = Array.isArray(data.library) ? sanitizeLibrary(data.library) : library;
             settings = { ...settings, ...(data.settings || {}) };
-            characters = Array.isArray(data.characters) ? data.characters : characters;
+            characters = Array.isArray(data.characters) ? sanitizeCharacters(data.characters) : characters;
             persistLocalState();
             applySettings();
             renderSymbols();
@@ -721,12 +748,12 @@ function handleFileSelect(event) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-        const content = String(reader.result).replace(/\n/g, "<br>");
+        const content = sanitizeHtml(String(reader.result).replace(/\n/g, "<br>"));
         const novel = getCurrentNovel();
         if (!novel) return;
         novel.chapters.push({
             id: createId("chapter"),
-            title: file.name.replace(/\.(txt|docx)$/i, ""),
+            title: toSafeText(file.name.replace(/\.(txt|docx)$/i, "")),
             content,
         });
         persistLocalState();
@@ -798,9 +825,9 @@ async function loadSnapshot(id) {
         return;
     }
 
-    library = cloneData(snapshot.data.library);
+    library = sanitizeLibrary(cloneData(snapshot.data.library));
     settings = { ...DEFAULT_SETTINGS, ...cloneData(snapshot.data.settings) };
-    characters = cloneData(snapshot.data.characters);
+    characters = sanitizeCharacters(cloneData(snapshot.data.characters));
     persistLocalState();
     applySettings();
     renderSymbols();
@@ -884,11 +911,11 @@ function saveCurrentCharacter() {
     const character = characters.find((item) => item.id === selectedCharacterId);
     if (!character) return;
 
-    character.name = elements.charName.value;
-    character.age = elements.charAge.value;
-    character.role = elements.charRole.value;
-    character.appearance = elements.charAppearance.value;
-    character.personality = elements.charPersonality.value;
+    character.name = toSafeText(elements.charName.value);
+    character.age = toSafeText(elements.charAge.value);
+    character.role = toSafeText(elements.charRole.value);
+    character.appearance = toSafeText(elements.charAppearance.value);
+    character.personality = toSafeText(elements.charPersonality.value);
     saveCharacters(characters);
     renderCharacterList();
     showToast("캐릭터 설정이 저장되었습니다.");
@@ -995,7 +1022,7 @@ function bindEvents() {
     elements.btnSave.addEventListener("click", performSave);
     elements.btnResetTestData.addEventListener("click", () => {
         if (!window.confirm(MESSAGES.testDataResetConfirm)) return;
-        const state = resetTestData();
+        const state = normalizeState(resetTestData());
         library = state.library;
         settings = state.settings;
         characters = state.characters;

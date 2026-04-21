@@ -23,6 +23,7 @@ function requirePlaywrightTest() {
 const { test, expect } = requirePlaywrightTest();
 
 const repoRoot = path.resolve(__dirname, "..");
+test.setTimeout(60000);
 
 const mimeTypes = {
     ".html": "text/html;charset=utf-8",
@@ -114,6 +115,71 @@ test("launcher opens isolated test mode without touching production storage", as
     await expect(page.locator("#titleInput")).toHaveValue("회귀 테스트 챕터");
     await expect(page.locator("#mainEditor")).toContainText("회귀 테스트 원고입니다.");
 
+    await page.locator("#btnHtmlMode").click();
+    await page.locator("#htmlSourceEditor").fill([
+        '<img src="x" onerror="window.__xss = 1">',
+        '<b onclick="window.__xss = 1">굵은 안전 문장</b>',
+        '<script>window.__xss = 1</script>',
+        '<div data-risk="1">일반 문장</div>',
+    ].join(""));
+    await page.locator("#btnHtmlMode").click();
+    await page.getByTestId("save-button").click();
+    const sanitizedHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(sanitizedHtml).toContain("<b>굵은 안전 문장</b>");
+    expect(sanitizedHtml).toContain("<div>일반 문장</div>");
+    expect(sanitizedHtml).not.toContain("script");
+    expect(sanitizedHtml).not.toContain("onerror");
+    expect(sanitizedHtml).not.toContain("onclick");
+    expect(sanitizedHtml).not.toContain("data-risk");
+    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+
+    await page.reload();
+    await expect(page.locator("#mainEditor")).toContainText("굵은 안전 문장");
+    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+
+    await page.locator("#mainEditor").fill("");
+    await page.locator("#mainEditor").click();
+    await page.locator("#symbolGroup .btn-symbol").first().click();
+    await expect(page.locator("#mainEditor")).toContainText("「」");
+
+    await page.locator("#mainEditor").fill("alpha beta alpha");
+    await page.locator("#btnSearch").click();
+    await page.locator("#findInput").fill("alpha");
+    await page.locator("#replaceInput").fill("gamma");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#btnReplaceAll").click();
+    await expect(page.locator("#mainEditor")).toContainText("gamma beta gamma");
+
+    await page.locator("#mainEditor").fill("문장. 다음 문장.");
+    if (!(await page.locator("#settingsPopup").isVisible())) {
+        await page.locator("#btnSettings").click();
+    }
+    await page.locator("#lineBreakOption").selectOption("2");
+    await page.locator("#btnRunLineBreak").click();
+    const lineBreakHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(lineBreakHtml).toContain("<br><br>");
+
+    await page.locator("#titleInput").fill("스냅샷 이전 제목");
+    await page.locator("#mainEditor").fill("스냅샷 이전 본문");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#btnSnapshotSave").click();
+    await page.locator("#titleInput").fill("스냅샷 이후 제목");
+    await page.locator("#mainEditor").fill("스냅샷 이후 본문");
+    await page.locator("#btnSnapshots").click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#snapshotList [data-action='load-snapshot']").first().click();
+    await expect(page.locator("#titleInput")).toHaveValue("스냅샷 이전 제목");
+    await expect(page.locator("#mainEditor")).toContainText("스냅샷 이전 본문");
+
+    const txtDownloadPromise = page.waitForEvent("download");
+    await page.locator("#btnExportTxt").click();
+    const txtDownload = await txtDownloadPromise;
+    expect(txtDownload.suggestedFilename()).toMatch(/\.txt$/);
+    const docxDownloadPromise = page.waitForEvent("download");
+    await page.locator("#btnExportDocx").click();
+    const docxDownload = await docxDownloadPromise;
+    expect(docxDownload.suggestedFilename()).toMatch(/\.docx$/);
+
     await page.locator("#libraryHomeBtn").click();
     page.once("dialog", (dialog) => dialog.accept("회귀 테스트 소설"));
     await page.getByTestId("sidebar-action").click();
@@ -131,6 +197,45 @@ test("launcher opens isolated test mode without touching production storage", as
     await page.locator("#btnSnapshotSave").click();
     await page.locator("#btnSnapshots").click();
     await expect(page.locator("#snapshotList")).toContainText("소설");
+    await page.locator("#btnCloseHistory").click();
+
+    const backupPayload = {
+        library: [
+            {
+                id: "backup-novel",
+                title: "백업 복원 소설",
+                memo: "",
+                chapters: [
+                    {
+                        id: "backup-chapter",
+                        title: "백업 1화",
+                        content: '복원 본문<script>window.__xss = 1</script><img src="x" onerror="window.__xss = 1">',
+                    },
+                ],
+            },
+        ],
+        settings: { targetCount: 1200 },
+        characters: [],
+    };
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.setInputFiles("#backupInput", {
+        name: "test-backup.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(JSON.stringify(backupPayload)),
+    });
+    await expect(page.locator("#sidebarList")).toContainText("백업 복원 소설");
+    await page.locator("#sidebarList .novel-item").filter({ hasText: "백업 복원 소설" }).click();
+    await expect(page.locator("#mainEditor")).toContainText("복원 본문");
+    const restoredHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(restoredHtml).not.toContain("script");
+    expect(restoredHtml).not.toContain("onerror");
+    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.locator("#btnMobileMenu").click();
+    await expect(page.locator("#sidebar")).toHaveClass(/open/);
+    await page.locator("#mobileOverlay").click();
+    await expect(page.locator("#sidebar")).not.toHaveClass(/open/);
 
     const storageState = await page.evaluate(() => ({
         productionLibrary: localStorage.getItem("novelLibrary"),
@@ -144,8 +249,10 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(storageState.productionLibrary).toBe("__production_library__");
     expect(storageState.productionSettings).toBe("__production_settings__");
     expect(storageState.productionCharacters).toBe("__production_characters__");
-    expect(storageState.testLibrary).toContain("회귀 테스트 소설");
-    expect(storageState.testSettings).toContain("targetCount");
-    expect(storageState.testCharacters).toContain("테스트 캐릭터");
+    expect(storageState.testLibrary).toContain("백업 복원 소설");
+    expect(storageState.testLibrary).not.toContain("script");
+    expect(storageState.testLibrary).not.toContain("onerror");
+    expect(storageState.testSettings).toContain("1200");
+    expect(storageState.testCharacters).toBe("[]");
     expect(browserErrors).toEqual([]);
 });
