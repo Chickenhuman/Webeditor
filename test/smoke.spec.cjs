@@ -166,6 +166,14 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(editorBox).not.toBeNull();
     expect(popupBox.y).toBeGreaterThan(toolbarBox.y);
     expect(popupBox.y).toBeLessThan(editorBox.y + 80);
+    await page.locator("#autoSaveIntervalInput").fill("3");
+    await page.locator("#autoSaveIntervalInput").dispatchEvent("change");
+    await page.locator("#btnTheme").click();
+    await expect(page.locator("body")).toHaveClass(/dark-mode/);
+    const storedSettingsAfterTheme = await page.evaluate(() => JSON.parse(localStorage.getItem("webeditor:test:settings")));
+    expect(storedSettingsAfterTheme.autoSaveMin).toBe(3);
+    expect(storedSettingsAfterTheme.darkMode).toBe(true);
+    await page.locator("#btnSettings").click();
     await page.locator("#btnRunLineBreak").click();
 
     await page.locator("#mainEditor").fill("회귀 테스트 원고입니다.");

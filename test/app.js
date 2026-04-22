@@ -34,6 +34,7 @@ import { backupTestState, downloadNovel } from "./modules/downloads.js";
 import { createCharacterController } from "./modules/characters.ui.js";
 import { createEditorController } from "./modules/editor.controller.js";
 import { createLibraryController } from "./modules/library.controller.js";
+import { createSettingsController } from "./modules/settings.controller.js";
 import { createSnapshotController } from "./modules/snapshots.ui.js";
 
 const cloud = createCloudMock();
@@ -44,10 +45,10 @@ let settings = initialState.settings;
 let characters = initialState.characters;
 let currentUser = null;
 let hasUnsavedChanges = false;
-let autoSaveTimerId = null;
 let characterController = null;
 let editorController = null;
 let libraryController = null;
+let settingsController = null;
 let snapshotController = null;
 
 function normalizeState(state) {
@@ -125,6 +126,14 @@ function initControllers() {
         updateSavedIndicator,
     });
 
+    settingsController = createSettingsController({
+        elements,
+        getSettings: () => settings,
+        saveSettings,
+        shouldAutoSave: () => hasUnsavedChanges,
+        performSave,
+    });
+
     characterController = createCharacterController({
         elements,
         getCharacters: () => characters,
@@ -143,7 +152,7 @@ function initControllers() {
         makeButton,
         showToast,
         persistLocalState,
-        applySettings,
+        applySettings: settingsController.applySettings,
         renderSymbols: () => editorController.renderSymbols(),
         renderLibrary: libraryController.renderLibrary,
         openNovel: libraryController.openNovel,
@@ -161,24 +170,6 @@ async function syncMockCloud(statusMessage = MESSAGES.savedCloud) {
         lastActive: getLastActive(),
     });
     updateSavedIndicator(statusMessage);
-}
-
-function applySettings() {
-    document.body.classList.toggle("dark-mode", Boolean(settings.darkMode));
-    elements.btnTheme.textContent = settings.darkMode ? "☀" : "☾";
-    elements.autoSaveInput.value = settings.autoSaveMin || DEFAULT_SETTINGS.autoSaveMin;
-    elements.targetCountInput.value = settings.targetCount || DEFAULT_SETTINGS.targetCount;
-    elements.goalTypeSelect.value = settings.goalType || DEFAULT_SETTINGS.goalType;
-}
-
-function startAutoSaveTimer() {
-    if (autoSaveTimerId) window.clearInterval(autoSaveTimerId);
-    const minutes = Number.parseInt(elements.autoSaveInput.value, 10) || APP_CONFIG.autosaveFallbackMinutes;
-    settings.autoSaveMin = minutes;
-    saveSettings(settings);
-    autoSaveTimerId = window.setInterval(() => {
-        if (hasUnsavedChanges) performSave();
-    }, minutes * 60 * 1000);
 }
 
 function updateSavedIndicator(message = MESSAGES.ready) {
@@ -250,7 +241,7 @@ function restoreData(event) {
             settings = { ...settings, ...(data.settings || {}) };
             characters = Array.isArray(data.characters) ? sanitizeCharacters(data.characters) : characters;
             persistLocalState();
-            applySettings();
+            settingsController.applySettings();
             editorController.renderSymbols();
             libraryController.renderLibrary();
             showToast("테스트 백업 복원이 완료되었습니다.");
@@ -295,18 +286,11 @@ function bindEvents() {
         library = state.library;
         settings = state.settings;
         characters = state.characters;
-        applySettings();
+        settingsController.applySettings();
         editorController.renderSymbols();
         await libraryController.openNovel(state.lastActive.novelId, { chapterId: state.lastActive.chapterId, skipLock: true });
         showToast("테스트 데이터가 초기화되었습니다.");
     });
-
-    elements.btnSettings.addEventListener("click", (event) => {
-        event.stopPropagation();
-        elements.settingsPopup.classList.toggle("open");
-    });
-    elements.settingsPopup.addEventListener("click", (event) => event.stopPropagation());
-    document.addEventListener("click", () => elements.settingsPopup.classList.remove("open"));
     elements.btnMemo.addEventListener("click", toggleMemoPanel);
     elements.btnCloseMemo.addEventListener("click", toggleMemoPanel);
     elements.btnExportTxt.addEventListener("click", () => downloadAll("txt"));
@@ -315,21 +299,16 @@ function bindEvents() {
     elements.btnSnapshotSave.addEventListener("click", snapshotController.saveSnapshot);
     elements.btnSnapshots.addEventListener("click", snapshotController.openSnapshotList);
     elements.btnBackup.addEventListener("click", backupData);
-    elements.btnTheme.addEventListener("click", () => {
-        settings.darkMode = !settings.darkMode;
-        saveSettings(settings);
-        applySettings();
-    });
     elements.btnFileOpen.addEventListener("click", () => elements.fileInput.click());
     elements.btnBackupRestore.addEventListener("click", () => elements.backupInput.click());
     elements.backupInput.addEventListener("change", restoreData);
 
     elements.titleInput.addEventListener("input", markAsUnsaved);
     elements.memoTextarea.addEventListener("input", markAsUnsaved);
-    elements.autoSaveInput.addEventListener("change", startAutoSaveTimer);
 
     libraryController.bindEvents();
     editorController.bindEvents();
+    settingsController.bindEvents();
     snapshotController.bindEvents();
     characterController.bindEvents();
 
@@ -349,9 +328,9 @@ async function init() {
     elements.userInfoDisplay.textContent = `${currentUser.displayName}님 (Mock Cloud)`;
     renderVersion();
     renderStorageGuard(getProductionStorageSnapshot());
-    applySettings();
+    settingsController.applySettings();
     editorController.renderSymbols();
-    startAutoSaveTimer();
+    settingsController.startAutoSaveTimer();
 
     const lastActive = initialState.lastActive;
     const targetNovel = library.find((novel) => novel.id === lastActive?.novelId) || library[0];
