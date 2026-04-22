@@ -1,5 +1,5 @@
 import { APP_CONFIG, DEFAULT_SETTINGS, MESSAGES } from "./config.js";
-import { sanitizeHtml } from "./sanitize.js";
+import { sanitizeClipboardHtml, sanitizeHtml } from "./sanitize.js";
 
 export function createEditorController({
     elements,
@@ -13,6 +13,7 @@ export function createEditorController({
     let historyDebounceTimer = null;
     let undoStack = [];
     let redoStack = [];
+    let pendingPasteMode = "rich";
 
     function isHtmlModeActive() {
         return isHtmlMode;
@@ -140,6 +141,60 @@ export function createEditorController({
         markAsUnsaved();
     }
 
+    function extractPlainTextFromHtml(html) {
+        if (!html) return "";
+        const template = document.createElement("template");
+        template.innerHTML = String(html);
+        return template.content.textContent || "";
+    }
+
+    function insertPlainClipboardText(text) {
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) {
+            document.execCommand("insertText", false, text);
+            return;
+        }
+
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+
+        const fragment = document.createDocumentFragment();
+        for (const [index, line] of String(text).split(/\r\n|\r|\n/).entries()) {
+            if (index > 0) fragment.appendChild(document.createElement("br"));
+            fragment.appendChild(document.createTextNode(line));
+        }
+
+        const lastNode = fragment.lastChild;
+        range.insertNode(fragment);
+        if (lastNode) {
+            range.setStartAfter(lastNode);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+    }
+
+    function insertClipboardContent({ html = "", text = "" }, mode = "rich") {
+        if (isHtmlMode) return;
+
+        const plainText = text || extractPlainTextFromHtml(html);
+        const safeHtml = mode === "rich" && html ? sanitizeClipboardHtml(html) : "";
+        const content = safeHtml || plainText;
+        if (!content) return false;
+
+        recordHistory();
+        elements.editor.focus();
+        if (safeHtml) {
+            document.execCommand("insertHTML", false, safeHtml);
+        } else if (mode === "plain") {
+            insertPlainClipboardText(plainText);
+        } else {
+            document.execCommand("insertText", false, plainText);
+        }
+        markAsUnsaved();
+        return true;
+    }
+
     function pasteClipboardContent(event) {
         if (isHtmlMode) return;
 
@@ -148,14 +203,43 @@ export function createEditorController({
 
         const html = clipboard.getData("text/html");
         const text = clipboard.getData("text/plain");
-        const safeHtml = html ? sanitizeHtml(html) : "";
-        const content = safeHtml || text;
-        if (!content) return;
+        const mode = pendingPasteMode;
+        if (!html && !text) return;
+        pendingPasteMode = "rich";
 
         event.preventDefault();
-        recordHistory();
-        document.execCommand(safeHtml ? "insertHTML" : "insertText", false, content);
-        markAsUnsaved();
+        insertClipboardContent({ html, text }, mode);
+    }
+
+    async function readSystemClipboard() {
+        const payload = { html: "", text: "" };
+
+        if (navigator.clipboard?.read) {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                if (!payload.html && item.types.includes("text/html")) {
+                    payload.html = await (await item.getType("text/html")).text();
+                }
+                if (!payload.text && item.types.includes("text/plain")) {
+                    payload.text = await (await item.getType("text/plain")).text();
+                }
+            }
+        }
+
+        if (!payload.text && navigator.clipboard?.readText) {
+            payload.text = await navigator.clipboard.readText();
+        }
+
+        return payload;
+    }
+
+    async function pasteFromClipboard(mode) {
+        try {
+            const pasted = insertClipboardContent(await readSystemClipboard(), mode);
+            if (!pasted) showToast("클립보드에 붙여넣을 내용이 없습니다.");
+        } catch (error) {
+            showToast("클립보드 권한을 허용하거나 단축키로 붙여넣어 주세요.");
+        }
     }
 
     function executeFormatCommand(command) {
@@ -241,6 +325,10 @@ export function createEditorController({
             const commandButton = event.target.closest("[data-command]");
             if (commandButton) executeFormatCommand(commandButton.dataset.command);
         });
+        elements.btnPasteFormatted.addEventListener("mousedown", (event) => event.preventDefault());
+        elements.btnPastePlain.addEventListener("mousedown", (event) => event.preventDefault());
+        elements.btnPasteFormatted.addEventListener("click", () => pasteFromClipboard("rich"));
+        elements.btnPastePlain.addEventListener("click", () => pasteFromClipboard("plain"));
         elements.symbolGroup.addEventListener("click", (event) => {
             const button = event.target.closest(".btn-symbol");
             if (button) insertSymbol(button.dataset.open, button.dataset.close);
@@ -268,8 +356,17 @@ export function createEditorController({
         elements.goalTypeSelect.addEventListener("change", saveGoalType);
 
         document.addEventListener("keydown", (event) => {
-            if (![elements.editor, elements.htmlEditor].includes(document.activeElement)) return;
+            const isEditorTarget = document.activeElement === elements.editor || event.target === elements.editor;
+            const isPlainTextField = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)
+                && document.activeElement !== elements.htmlEditor;
             const key = event.key.toLowerCase();
+            if (!isPlainTextField && document.activeElement !== elements.htmlEditor && (event.ctrlKey || event.metaKey) && key === "v") {
+                pendingPasteMode = event.shiftKey ? "plain" : "rich";
+                window.setTimeout(() => {
+                    pendingPasteMode = "rich";
+                }, 1000);
+            }
+            if (!isEditorTarget && document.activeElement !== elements.htmlEditor) return;
             if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z") {
                 event.preventDefault();
                 performUndo();

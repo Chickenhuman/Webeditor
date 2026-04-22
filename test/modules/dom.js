@@ -41,6 +41,8 @@ export const elements = {
     editorWrapper: $("editorWrapper"),
     titleInput: $("titleInput"),
     formatToolbar: $("formatToolbar"),
+    btnPasteFormatted: $("btnPasteFormatted"),
+    btnPastePlain: $("btnPastePlain"),
     symbolGroup: $("symbolGroup"),
     btnSymbolEditor: $("btnSymbolEditor"),
     symbolEditModal: $("symbolEditModal"),

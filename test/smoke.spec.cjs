@@ -197,11 +197,11 @@ test("launcher opens isolated test mode without touching production storage", as
 
         const clipboardData = new DataTransfer();
         clipboardData.setData("text/html", [
-            "<style>.MsoTitle, p.MsoTitle { color: #9333ea; font-size: 24pt; text-align: center; background-image: url(javascript:alert(1)); }</style>",
+            "<style>.MsoTitle, p.MsoTitle { color: #9333ea; font-size: 24pt; text-align: center; background-color: #fef08a; background-image: url(javascript:alert(1)); }</style>",
             "<p><strong>굵은 원문</strong> <em>기울임</em> <u>밑줄</u></p>",
             '<p class="MsoTitle">클래스 제목</p>',
             '<p align="right">정렬 문장</p>',
-            '<ol start="3"><li value="4"><span style="color: rgb(220, 38, 38); font-size: 20px; background-image: url(javascript:alert(1));" onclick="window.__xss = 1">색상 문장</span></li></ol>',
+            '<ol start="3"><li value="4"><span style="color: rgb(220, 38, 38); font-size: 20px; background-color: yellow; background-image: url(javascript:alert(1));" onclick="window.__xss = 1">색상 문장</span></li></ol>',
             '<p><a href="https://example.com" onclick="window.__xss = 1" title="안전 링크">링크</a><a href="javascript:window.__xss = 1">위험 링크</a></p>',
             '<table style="border-collapse: collapse"><tbody><tr><td colspan="2" style="border: 1px solid #111; padding-left: 4px">표 셀</td></tr></tbody></table>',
             '<table border="1" cellpadding="3" cellspacing="2" width="80%"><tbody><tr><td bgcolor="#fef3c7" align="center" valign="top" width="120" height="40">속성 셀</td></tr></tbody></table>',
@@ -256,6 +256,7 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(pastedHtml.classTitleStyle).toContain("color: rgb(147, 51, 234)");
     expect(pastedHtml.classTitleStyle).toContain("font-size: 24pt");
     expect(pastedHtml.classTitleStyle).toContain("text-align: center");
+    expect(pastedHtml.classTitleStyle).not.toContain("background");
     expect(pastedHtml.alignedParagraphStyle).toContain("text-align: right");
     expect(pastedHtml.hasList).toBe(true);
     expect(pastedHtml.listStart).toBe("3");
@@ -268,20 +269,22 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(pastedHtml.hasTable).toBe(true);
     expect(pastedHtml.cellColspan).toBe("2");
     expect(pastedHtml.cellStyle).toContain("border:");
-    expect(pastedHtml.cellStyle).toContain("padding-left: 4px");
+    expect(pastedHtml.cellStyle).not.toContain("padding");
     expect(pastedHtml.attributeTableBorder).toBe("1");
-    expect(pastedHtml.attributeTableCellpadding).toBe("3");
-    expect(pastedHtml.attributeTableCellspacing).toBe("2");
-    expect(pastedHtml.attributeTableStyle).toContain("width: 80%");
-    expect(pastedHtml.attributeCellStyle).toContain("background-color: rgb(254, 243, 199)");
+    expect(pastedHtml.attributeTableCellpadding).toBeNull();
+    expect(pastedHtml.attributeTableCellspacing).toBeNull();
+    expect(pastedHtml.attributeTableStyle).not.toContain("80%");
+    expect(pastedHtml.attributeCellStyle).not.toContain("background");
     expect(pastedHtml.attributeCellStyle).toContain("text-align: center");
     expect(pastedHtml.attributeCellStyle).toContain("vertical-align: top");
-    expect(pastedHtml.attributeCellStyle).toContain("width: 120px");
-    expect(pastedHtml.attributeCellStyle).toContain("height: 40px");
+    expect(pastedHtml.attributeCellStyle).not.toContain("120px");
+    expect(pastedHtml.attributeCellStyle).not.toContain("height");
     expect(pastedHtml.fontStyle).toContain("color: rgb(37, 99, 235)");
-    expect(pastedHtml.fontStyle).toContain("font-family: serif");
+    expect(pastedHtml.fontStyle).not.toContain("font-family");
     expect(pastedHtml.fontStyle).toContain("font-size: 24px");
+    expect(pastedHtml.html).not.toContain("background-color");
     expect(pastedHtml.html).not.toContain("background-image");
+    expect(pastedHtml.html).not.toContain("padding-left");
     expect(pastedHtml.html).not.toContain("MsoTitle");
     expect(pastedHtml.html).not.toContain("onclick");
     expect(pastedHtml.html).not.toContain("javascript:");
@@ -300,11 +303,74 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(reloadedPastedHtml.listStart).toBe("3");
     expect(reloadedPastedHtml.safeLinkHref).toBe("https://example.com");
     expect(reloadedPastedHtml.hasTable).toBe(true);
-    expect(reloadedPastedHtml.attributeTableCellpadding).toBe("3");
-    expect(reloadedPastedHtml.attributeCellStyle).toContain("background-color: rgb(254, 243, 199)");
+    expect(reloadedPastedHtml.attributeTableCellpadding).toBeNull();
+    expect(reloadedPastedHtml.attributeCellStyle).not.toContain("background");
     expect(reloadedPastedHtml.spanStyle).toContain("color: rgb(220, 38, 38)");
     expect(reloadedPastedHtml.spanStyle).toContain("font-size: 20px");
     expect(reloadedPastedHtml.fontStyle).toContain("font-size: 24px");
+
+    await page.locator("#mainEditor").fill("");
+    await page.locator("#mainEditor").focus();
+    await page.keyboard.down("Control");
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("V");
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("Control");
+    await page.locator("#mainEditor").evaluate((node) => {
+        node.focus();
+        const clipboardData = new DataTransfer();
+        clipboardData.setData("text/html", '<strong style="font-size: 22px">단축키 서식</strong>');
+        clipboardData.setData("text/plain", "단축키 서식");
+        node.dispatchEvent(new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData,
+        }));
+    });
+    const plainShortcutHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(await page.locator("#mainEditor").evaluate((node) => node.textContent)).toBe("단축키 서식");
+    expect(plainShortcutHtml).not.toContain("strong");
+    expect(plainShortcutHtml).not.toContain("font-size");
+
+    await page.evaluate(() => {
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: {
+                async read() {
+                    return [{
+                        types: ["text/html", "text/plain"],
+                        async getType(type) {
+                            return {
+                                async text() {
+                                    return type === "text/html"
+                                        ? '<em style="font-size: 18px; background-color: yellow; font-family: serif">버튼 서식</em>'
+                                        : "버튼 서식";
+                                },
+                            };
+                        },
+                    }];
+                },
+                async readText() {
+                    return "버튼 서식";
+                },
+            },
+        });
+    });
+    await page.locator("#mainEditor").fill("");
+    await page.locator("#btnPasteFormatted").click();
+    const formattedButtonHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(formattedButtonHtml).toContain("<em");
+    expect(formattedButtonHtml).toContain("font-size: 18px");
+    expect(formattedButtonHtml).not.toContain("background");
+    expect(formattedButtonHtml).not.toContain("font-family");
+
+    await page.locator("#mainEditor").fill("");
+    await page.locator("#btnPastePlain").click();
+    const plainButtonHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(await page.locator("#mainEditor").evaluate((node) => node.textContent)).toBe("버튼 서식");
+    expect(plainButtonHtml).not.toContain("font-size");
+    expect(plainButtonHtml).not.toContain("<em");
+    expect(plainButtonHtml).not.toContain("<i");
 
     await page.locator("#btnHtmlMode").click();
     await page.locator("#htmlSourceEditor").fill([

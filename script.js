@@ -53,6 +53,7 @@ let historyDebounceTimer = null;
 let autoSaveTimerId = null;
 let hasUnsavedChanges = false;
 let isHtmlMode = false;
+let pendingPasteMode = 'rich';
 let viewMode = 'library';
 let currentUser = null;
 let isLoginMode = true; 
@@ -113,6 +114,250 @@ const memoTextarea = document.getElementById('memoTextarea');
 const searchModal = document.getElementById('searchModal');
 const findInput = document.getElementById('findInput');
 const replaceInput = document.getElementById('replaceInput');
+
+const PASTE_ALLOWED_TAGS = new Set([
+    'A', 'B', 'BLOCKQUOTE', 'BR', 'CAPTION', 'CODE', 'COL', 'COLGROUP', 'DIV', 'EM', 'FONT',
+    'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'LI', 'OL', 'P', 'PRE', 'S', 'SPAN',
+    'STRIKE', 'STRONG', 'SUB', 'SUP', 'TABLE', 'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR',
+    'U', 'UL'
+]);
+const PASTE_DROP_WITH_CONTENT_TAGS = new Set(['IFRAME', 'OBJECT', 'SCRIPT', 'STYLE', 'TEMPLATE']);
+const PASTE_ALLOWED_STYLE_PROPERTIES = [
+    'border', 'border-bottom', 'border-collapse', 'border-color', 'border-left', 'border-right',
+    'border-style', 'border-top', 'border-width', 'color', 'font-size', 'font-style',
+    'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration',
+    'text-decoration-line', 'vertical-align', 'white-space'
+];
+const PASTE_UNSAFE_STYLE_VALUE = /(?:expression\s*\(|url\s*\(|javascript:|vbscript:|data:|@import|behavior\s*:|[<>])/i;
+const PASTE_UNSAFE_STYLE_ATTRIBUTE_VALUE = /(?:expression\s*\(|url\s*\(|javascript:|vbscript:|data:|@import|behavior\s*:|[<>{};])/i;
+const PASTE_FONT_SIZE_MAP = new Map([
+    [1, '10px'],
+    [2, '13px'],
+    [3, '16px'],
+    [4, '18px'],
+    [5, '24px'],
+    [6, '32px'],
+    [7, '48px'],
+]);
+
+function sanitizePastedHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '');
+    const classStyles = collectPastedClassStyles(template.content);
+    sanitizePastedChildren(template.content, classStyles);
+    return template.innerHTML;
+}
+
+function collectPastedClassStyles(root) {
+    const classStyles = new Map();
+    const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+
+    for (const styleElement of root.querySelectorAll('style')) {
+        const styleText = styleElement.textContent || '';
+        let rule;
+
+        while ((rule = rulePattern.exec(styleText))) {
+            const safeStyle = sanitizePastedStyle(rule[2]);
+            if (!safeStyle) continue;
+
+            for (const selector of rule[1].split(',')) {
+                const classMatches = selector.matchAll(/\.([_a-zA-Z][\w-]*)/g);
+                for (const classMatch of classMatches) {
+                    const className = classMatch[1];
+                    const existingStyle = classStyles.get(className);
+                    classStyles.set(className, existingStyle ? `${existingStyle}; ${safeStyle}` : safeStyle);
+                }
+            }
+        }
+    }
+
+    return classStyles;
+}
+
+function sanitizePastedChildren(parent, classStyles) {
+    for (const child of [...parent.childNodes]) sanitizePastedNode(child, classStyles);
+}
+
+function sanitizePastedNode(node, classStyles) {
+    if (node.nodeType === Node.COMMENT_NODE) {
+        node.remove();
+        return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    if (PASTE_DROP_WITH_CONTENT_TAGS.has(node.tagName)) {
+        node.remove();
+        return;
+    }
+
+    sanitizePastedChildren(node, classStyles);
+
+    if (!PASTE_ALLOWED_TAGS.has(node.tagName)) {
+        node.replaceWith(...node.childNodes);
+        return;
+    }
+
+    sanitizePastedAttributes(node, classStyles);
+}
+
+function sanitizePastedAttributes(node, classStyles) {
+    const originalAttributes = new Map([...node.attributes].map((attribute) => [attribute.name.toLowerCase(), attribute.value]));
+    const styleParts = [];
+    appendPastedClassStyles(styleParts, originalAttributes.get('class'), classStyles);
+    appendPastedPresentationAttributeStyles(styleParts, node, originalAttributes);
+    if (node.tagName === 'FONT') appendPastedFontAttributeStyles(styleParts, originalAttributes);
+    styleParts.push(originalAttributes.get('style') || '');
+
+    for (const attribute of [...node.attributes]) node.removeAttribute(attribute.name);
+
+    const safeStyle = sanitizePastedStyle(styleParts.filter(Boolean).join('; '));
+    if (safeStyle) node.setAttribute('style', safeStyle);
+
+    restorePastedSafeAttributes(node, originalAttributes);
+}
+
+function appendPastedClassStyles(styleParts, classNames, classStyles) {
+    for (const className of String(classNames || '').split(/\s+/).filter(Boolean)) {
+        const classStyle = classStyles.get(className);
+        if (classStyle) styleParts.push(classStyle);
+    }
+}
+
+function appendPastedPresentationAttributeStyles(styleParts, node, attributes) {
+    const align = attributes.get('align');
+    if (['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TD', 'TH'].includes(node.tagName)) {
+        appendPastedMatchingStyle(styleParts, 'text-align', align, /^(left|right|center|justify)$/i);
+    }
+
+    const verticalAlign = attributes.get('valign');
+    if (['TD', 'TH', 'TR'].includes(node.tagName)) {
+        appendPastedMatchingStyle(styleParts, 'vertical-align', verticalAlign, /^(top|middle|bottom|baseline)$/i);
+    }
+
+    if (['TABLE', 'TD', 'TH'].includes(node.tagName)) {
+        const border = normalizePastedCssLength(attributes.get('border'));
+        if (border && border !== '0px') styleParts.push(`border: ${border} solid currentColor`);
+    }
+}
+
+function sanitizePastedStyle(styleText) {
+    if (!styleText) return '';
+
+    const parser = document.createElement('span');
+    parser.setAttribute('style', styleText);
+
+    return PASTE_ALLOWED_STYLE_PROPERTIES.map((property) => {
+        const value = parser.style.getPropertyValue(property).trim();
+        if (!value || PASTE_UNSAFE_STYLE_VALUE.test(value)) return '';
+
+        const priority = parser.style.getPropertyPriority(property);
+        return `${property}: ${value}${priority ? ` !${priority}` : ''}`;
+    }).filter(Boolean).join('; ');
+}
+
+function appendPastedFontAttributeStyles(styleParts, attributes) {
+    const color = attributes.get('color');
+    if (isSafePastedStyleAttributeValue(color)) styleParts.push(`color: ${color}`);
+
+    const size = sanitizePastedFontSize(attributes.get('size'));
+    if (size) styleParts.push(`font-size: ${size}`);
+}
+
+function restorePastedSafeAttributes(node, attributes) {
+    if (node.tagName === 'A') {
+        const href = sanitizePastedUrl(attributes.get('href'));
+        if (href) node.setAttribute('href', href);
+
+        const title = attributes.get('title');
+        if (title) node.setAttribute('title', title);
+    }
+
+    if (node.tagName === 'OL') {
+        setPastedPositiveIntegerAttribute(node, 'start', attributes.get('start'));
+        setPastedMatchingAttribute(node, 'type', attributes.get('type'), /^(1|a|A|i|I)$/);
+    }
+
+    if (node.tagName === 'UL') {
+        setPastedMatchingAttribute(node, 'type', attributes.get('type'), /^(disc|circle|square)$/i);
+    }
+
+    if (node.tagName === 'LI') {
+        setPastedPositiveIntegerAttribute(node, 'value', attributes.get('value'));
+    }
+
+    if (['TD', 'TH'].includes(node.tagName)) {
+        setPastedPositiveIntegerAttribute(node, 'colspan', attributes.get('colspan'));
+        setPastedPositiveIntegerAttribute(node, 'rowspan', attributes.get('rowspan'));
+    }
+
+    if (node.tagName === 'TABLE') {
+        setPastedPositiveIntegerAttribute(node, 'border', attributes.get('border'));
+    }
+
+    if (['COL', 'COLGROUP'].includes(node.tagName)) {
+        setPastedPositiveIntegerAttribute(node, 'span', attributes.get('span'));
+    }
+}
+
+function sanitizePastedUrl(value) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('#')) return trimmed;
+
+    try {
+        const parsed = new URL(trimmed, window.location.href);
+        return ['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol) ? trimmed : '';
+    } catch (error) {
+        return '';
+    }
+}
+
+function sanitizePastedFontSize(value) {
+    const normalized = String(value || '').trim();
+    if (!/^[+-]?\d+$/.test(normalized)) return '';
+
+    const size = normalized.startsWith('+') || normalized.startsWith('-')
+        ? 3 + Number.parseInt(normalized, 10)
+        : Number.parseInt(normalized, 10);
+    return PASTE_FONT_SIZE_MAP.get(Math.min(Math.max(size, 1), 7)) || '';
+}
+
+function isSafePastedStyleAttributeValue(value) {
+    return Boolean(value) && !PASTE_UNSAFE_STYLE_ATTRIBUTE_VALUE.test(value);
+}
+
+function appendPastedSafeStyle(styleParts, property, value) {
+    if (isSafePastedStyleAttributeValue(value)) styleParts.push(`${property}: ${value}`);
+}
+
+function appendPastedMatchingStyle(styleParts, property, value, pattern) {
+    const normalized = String(value || '').trim();
+    if (pattern.test(normalized)) styleParts.push(`${property}: ${normalized}`);
+}
+
+function appendPastedLengthStyle(styleParts, property, value) {
+    const length = normalizePastedCssLength(value);
+    if (length) styleParts.push(`${property}: ${length}`);
+}
+
+function normalizePastedCssLength(value) {
+    const normalized = String(value || '').trim();
+    if (!/^\d+(?:\.\d+)?(?:%|px|pt|em|rem)?$/i.test(normalized)) return '';
+    return /^\d+(?:\.\d+)?$/.test(normalized) ? `${normalized}px` : normalized;
+}
+
+function setPastedPositiveIntegerAttribute(node, name, value) {
+    const normalized = String(value || '').trim();
+    if (/^\d+$/.test(normalized) && Number.parseInt(normalized, 10) > 0) {
+        node.setAttribute(name, normalized);
+    }
+}
+
+function setPastedMatchingAttribute(node, name, value, pattern) {
+    const normalized = String(value || '').trim();
+    if (pattern.test(normalized)) node.setAttribute(name, normalized);
+}
 
 // ============================================================
 // [3] 인증 시스템
@@ -334,9 +579,17 @@ function performRedo() {
     updateCount();
 }
 document.addEventListener('keydown', (e) => {
-    if (document.activeElement !== editor && document.activeElement !== htmlEditor) return;
-    if ((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key.toLowerCase()==='z') { e.preventDefault(); performUndo(); }
-    if ((e.ctrlKey||e.metaKey) && (e.key.toLowerCase()==='y' || (e.shiftKey && e.key.toLowerCase()==='z'))) { e.preventDefault(); performRedo(); }
+    const isEditorTarget = document.activeElement === editor || e.target === editor;
+    const isPlainTextField = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)
+        && document.activeElement !== htmlEditor;
+    const key = e.key.toLowerCase();
+    if (!isPlainTextField && document.activeElement !== htmlEditor && (e.ctrlKey||e.metaKey) && key === 'v') {
+        pendingPasteMode = e.shiftKey ? 'plain' : 'rich';
+        window.setTimeout(() => { pendingPasteMode = 'rich'; }, 1000);
+    }
+    if (!isEditorTarget && document.activeElement !== htmlEditor) return;
+    if ((e.ctrlKey||e.metaKey) && !e.shiftKey && key==='z') { e.preventDefault(); performUndo(); }
+    if ((e.ctrlKey||e.metaKey) && (key==='y' || (e.shiftKey && key==='z'))) { e.preventDefault(); performRedo(); }
 });
 editor.addEventListener('beforeinput', () => {
     if (!historyDebounceTimer) recordHistory();
@@ -430,6 +683,7 @@ window.toggleDarkMode = toggleDarkMode;
 window.toggleSearchModal = toggleSearchModal;
 window.findAndReplace = findAndReplace;
 window.execCmd = execCmd;
+window.pasteFromClipboard = pasteFromClipboard;
 window.insertSymbol = insertSymbol;
 
 function checkMigration() {
@@ -775,7 +1029,108 @@ function toggleMemoPanel() { memoPanel.classList.toggle('open'); }
 function toggleHtmlMode() { isHtmlMode=!isHtmlMode; if(isHtmlMode){htmlEditor.value=editor.innerHTML;editor.style.display='none';htmlEditor.style.display='block';}else{editor.innerHTML=htmlEditor.value;htmlEditor.style.display='none';editor.style.display='block';updateCount();} }
 function toggleSearchModal(){searchModal.style.display=(searchModal.style.display==='none'?'block':'none');if(searchModal.style.display==='block')findInput.focus();}
 function execCmd(c){ if(isHtmlMode)return; recordHistory(); document.execCommand(c,false,null); editor.focus(); markAsUnsaved(); }
-editor.addEventListener('paste', e => { if(isHtmlMode)return; e.preventDefault(); recordHistory(); document.execCommand('insertText',false,(e.clipboardData||window.clipboardData).getData('text/plain')); markAsUnsaved(); });
+function extractPlainTextFromPastedHtml(html) {
+    if (!html) return '';
+    const template = document.createElement('template');
+    template.innerHTML = String(html);
+    return template.content.textContent || '';
+}
+
+function insertPlainClipboardText(text) {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) {
+        document.execCommand('insertText', false, text);
+        return;
+    }
+
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+
+    const fragment = document.createDocumentFragment();
+    String(text).split(/\r\n|\r|\n/).forEach((line, index) => {
+        if (index > 0) fragment.appendChild(document.createElement('br'));
+        fragment.appendChild(document.createTextNode(line));
+    });
+
+    const lastNode = fragment.lastChild;
+    range.insertNode(fragment);
+    if (lastNode) {
+        range.setStartAfter(lastNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }
+}
+
+function insertClipboardContent(payload, mode = 'rich') {
+    if (isHtmlMode) return false;
+
+    const html = payload?.html || '';
+    const text = payload?.text || '';
+    const plainText = text || extractPlainTextFromPastedHtml(html);
+    const safeHtml = mode === 'rich' && html ? sanitizePastedHtml(html) : '';
+    const content = safeHtml || plainText;
+    if (!content) return false;
+
+    recordHistory();
+    editor.focus();
+    if (safeHtml) {
+        document.execCommand('insertHTML', false, safeHtml);
+    } else if (mode === 'plain') {
+        insertPlainClipboardText(plainText);
+    } else {
+        document.execCommand('insertText', false, plainText);
+    }
+    markAsUnsaved();
+    return true;
+}
+
+async function readSystemClipboard() {
+    const payload = { html: '', text: '' };
+
+    if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            if (!payload.html && item.types.includes('text/html')) {
+                payload.html = await (await item.getType('text/html')).text();
+            }
+            if (!payload.text && item.types.includes('text/plain')) {
+                payload.text = await (await item.getType('text/plain')).text();
+            }
+        }
+    }
+
+    if (!payload.text && navigator.clipboard?.readText) {
+        payload.text = await navigator.clipboard.readText();
+    }
+
+    return payload;
+}
+
+async function pasteFromClipboard(mode = 'rich') {
+    try {
+        const pasted = insertClipboardContent(await readSystemClipboard(), mode);
+        if (!pasted) alert('클립보드에 붙여넣을 내용이 없습니다.');
+    } catch (error) {
+        alert('클립보드 권한을 허용하거나 단축키로 붙여넣어 주세요.');
+    }
+}
+
+editor.addEventListener('paste', e => {
+    if (isHtmlMode) return;
+
+    const clipboard = e.clipboardData || window.clipboardData;
+    if (!clipboard) return;
+
+    const html = clipboard.getData('text/html');
+    const text = clipboard.getData('text/plain');
+    const mode = pendingPasteMode;
+    if (!html && !text) return;
+    pendingPasteMode = 'rich';
+
+    e.preventDefault();
+    insertClipboardContent({ html, text }, mode);
+});
 function findAndReplace(){ const f=findInput.value,r=replaceInput.value; if(!f||isHtmlMode)return; if(!confirm('변경?'))return; const c=editor.innerHTML; const n=c.split(f).join(r); if(c===n)alert('없음'); else { recordHistory(); editor.innerHTML=n; markAsUnsaved(); toggleSearchModal(); alert('완료'); } }
 function autoLineBreak(){ if(isHtmlMode)return; const o=document.getElementById('lineBreakOption').value,ig=document.getElementById('ignoreEllipsis').checked,br=(o==='2'?'<br><br>':'<br>'); let h=editor.innerHTML,rx=ig ? /("[^"]*")|((?<!\.)\.(\s|&nbsp;))/g : /("[^"]*")|(\.(\s|&nbsp;))/g; const n=h.replace(rx, (m,q)=>{ return q ? m : '.'+br; }); if(h!==n){ recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); alert('완료'); } else alert('변경없음'); }
 
