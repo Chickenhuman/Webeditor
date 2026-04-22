@@ -321,6 +321,15 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 
     await page.locator("#mainEditor").fill("");
+    await page.locator("#mainEditor").focus();
+    await page.keyboard.type("undo check");
+    await expect(page.locator("#mainEditor")).toContainText("undo check");
+    await page.keyboard.press("Control+Z");
+    await expect(page.locator("#mainEditor")).toContainText("굵은 안전 문장");
+    await page.keyboard.press("Control+Y");
+    await expect(page.locator("#mainEditor")).toContainText("undo check");
+
+    await page.locator("#mainEditor").fill("");
     await page.locator("#mainEditor").click();
     await page.locator("#symbolGroup .btn-symbol").first().click();
     await expect(page.locator("#mainEditor")).toContainText("「」");
