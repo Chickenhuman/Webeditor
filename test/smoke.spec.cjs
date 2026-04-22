@@ -405,6 +405,26 @@ test("launcher opens isolated test mode without touching production storage", as
     });
     await expect(page.locator("#sidebarTitle")).toContainText("회귀 테스트 소설");
 
+    await page.getByTestId("sidebar-action").click();
+    await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(2);
+    await page.locator("#sidebarList .chapter-item.active [data-action='move-chapter-up']").click({ force: true });
+    const movedChapterOrder = await page.evaluate(() => {
+        const library = JSON.parse(localStorage.getItem("webeditor:test:library"));
+        return library.find((novel) => novel.title === "회귀 테스트 소설").chapters.map((chapter) => chapter.title);
+    });
+    expect(movedChapterOrder[0]).toBe("2화");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#sidebarList .chapter-item.active [data-action='delete-chapter']").click({ force: true });
+    await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(1);
+
+    await page.setInputFiles("#fileInput", {
+        name: "imported-chapter.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("가져온 챕터 본문"),
+    });
+    await expect(page.locator("#titleInput")).toHaveValue("imported-chapter");
+    await expect(page.locator("#mainEditor")).toContainText("가져온 챕터 본문");
+
     await page.locator("#btnCharacters").click();
     await page.locator("#btnAddCharacter").click();
     await page.locator("#charName").fill("테스트 캐릭터");
