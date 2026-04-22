@@ -358,10 +358,19 @@ test("launcher opens isolated test mode without touching production storage", as
     await page.locator("#btnExportTxt").click();
     const txtDownload = await txtDownloadPromise;
     expect(txtDownload.suggestedFilename()).toMatch(/\.txt$/);
+    const txtDownloadPath = await txtDownload.path();
+    expect(fs.readFileSync(txtDownloadPath, "utf8")).toContain("[스냅샷 이전 제목]");
+    expect(fs.readFileSync(txtDownloadPath, "utf8")).toContain("스냅샷 이전 본문");
+
     const docxDownloadPromise = page.waitForEvent("download");
     await page.locator("#btnExportDocx").click();
     const docxDownload = await docxDownloadPromise;
     expect(docxDownload.suggestedFilename()).toMatch(/\.docx$/);
+    const docxDownloadPath = await docxDownload.path();
+    const docxContent = fs.readFileSync(docxDownloadPath, "utf8");
+    expect(docxContent).toContain("<!DOCTYPE html>");
+    expect(docxContent).toContain("<h1>스냅샷 이전 제목</h1>");
+    expect(docxContent).toContain("스냅샷 이전 본문");
 
     await page.locator("#libraryHomeBtn").click();
     page.once("dialog", (dialog) => dialog.accept("회귀 테스트 소설"));
