@@ -1,10 +1,12 @@
 import {
+    APP_CONFIG,
     DEFAULT_SETTINGS,
     PRODUCTION_STORAGE_KEYS,
     SAMPLE_CHARACTERS,
     SAMPLE_LIBRARY,
     STORAGE_KEYS,
     cloneData,
+    createId,
 } from "./config.js";
 
 export function loadJson(key, fallback) {
@@ -38,6 +40,7 @@ export function seedTestData(force = false) {
     saveJson(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
     saveJson(STORAGE_KEYS.characters, SAMPLE_CHARACTERS);
     saveJson(STORAGE_KEYS.snapshots, []);
+    saveJson(STORAGE_KEYS.safetyBackups, []);
     localStorage.setItem(STORAGE_KEYS.lastUpdated, new Date().toISOString());
     saveJson(STORAGE_KEYS.lastActive, {
         novelId: SAMPLE_LIBRARY[0].id,
@@ -71,6 +74,18 @@ export function saveCharacters(characters) {
 
 export function saveLastActive(lastActive) {
     saveJson(STORAGE_KEYS.lastActive, lastActive);
+}
+
+export function saveSafetyBackup(reason, state) {
+    const backups = loadJson(STORAGE_KEYS.safetyBackups, []);
+    const backup = {
+        id: createId("safety-backup"),
+        reason,
+        savedAt: new Date().toISOString(),
+        data: cloneData(state),
+    };
+    saveJson(STORAGE_KEYS.safetyBackups, [backup, ...backups].slice(0, APP_CONFIG.maxSafetyBackups));
+    return backup;
 }
 
 export function resetTestData() {

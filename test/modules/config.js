@@ -6,6 +6,7 @@ export const APP_CONFIG = {
     defaultChapterTitle: "1화",
     autosaveFallbackMinutes: 3,
     maxSnapshots: 20,
+    maxSafetyBackups: 10,
     maxHistory: 50,
 };
 
@@ -14,7 +15,9 @@ export const STORAGE_KEYS = {
     settings: `${APP_CONFIG.storagePrefix}:settings`,
     characters: `${APP_CONFIG.storagePrefix}:characters`,
     snapshots: `${APP_CONFIG.storagePrefix}:snapshots`,
+    safetyBackups: `${APP_CONFIG.storagePrefix}:safety-backups`,
     cloudState: `${APP_CONFIG.storagePrefix}:cloud-state`,
+    cloudFailNextSync: `${APP_CONFIG.storagePrefix}:cloud-fail-next-sync`,
     lastActive: `${APP_CONFIG.storagePrefix}:last-active`,
     lastUpdated: `${APP_CONFIG.storagePrefix}:last-updated`,
 };
@@ -47,6 +50,8 @@ export const MESSAGES = {
     testModeReady: "테스트 모드 준비 완료",
     savedLocal: "저장됨(Test Local)",
     savedCloud: "저장됨(Mock Cloud)",
+    savingCloud: "Mock Cloud 저장 중...",
+    savedCloudFailed: "Mock Cloud 저장 실패(Test Local 보존)",
     unsaved: "저장 안됨",
     ready: "준비됨",
     noNovel: "저장할 소설이 선택되지 않았습니다.",

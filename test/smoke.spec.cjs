@@ -179,7 +179,28 @@ test("launcher opens isolated test mode without touching production storage", as
     await page.locator("#mainEditor").fill("회귀 테스트 원고입니다.");
     await page.locator("#titleInput").fill("회귀 테스트 챕터");
     await page.getByTestId("save-button").click();
-    await expect(page.locator("#lastSavedDisplay")).toContainText(/Mock Cloud|Test Local/);
+    await expect(page.locator("#lastSavedDisplay")).toContainText("저장됨(Mock Cloud)");
+
+    await page.evaluate(() => {
+        localStorage.setItem("webeditor:test:cloud-fail-next-sync", "1");
+    });
+    await page.locator("#mainEditor").fill("클라우드 실패 후 로컬 보존");
+    await page.getByTestId("save-button").click();
+    await expect(page.locator("#lastSavedDisplay")).toContainText("Mock Cloud 저장 실패");
+    const failedSaveState = await page.evaluate(() => {
+        const library = JSON.parse(localStorage.getItem("webeditor:test:library"));
+        const cloudState = JSON.parse(localStorage.getItem("webeditor:test:cloud-state"));
+        return {
+            localContent: library[0].chapters[0].content,
+            cloudContent: cloudState.library[0].chapters[0].content,
+        };
+    });
+    expect(failedSaveState.localContent).toContain("클라우드 실패 후 로컬 보존");
+    expect(failedSaveState.cloudContent).not.toContain("클라우드 실패 후 로컬 보존");
+
+    await page.locator("#mainEditor").fill("회귀 테스트 원고입니다.");
+    await page.getByTestId("save-button").click();
+    await expect(page.locator("#lastSavedDisplay")).toContainText("저장됨(Mock Cloud)");
 
     await page.reload();
     await expect(page.locator("#titleInput")).toHaveValue("회귀 테스트 챕터");
@@ -436,6 +457,12 @@ test("launcher opens isolated test mode without touching production storage", as
     await page.locator("#snapshotList [data-action='load-snapshot']").first().click();
     await expect(page.locator("#titleInput")).toHaveValue("스냅샷 이전 제목");
     await expect(page.locator("#mainEditor")).toContainText("스냅샷 이전 본문");
+    const snapshotSafetyBackup = await page.evaluate(() => {
+        const backups = JSON.parse(localStorage.getItem("webeditor:test:safety-backups"));
+        return backups[0];
+    });
+    expect(snapshotSafetyBackup.reason).toBe("snapshot-restore");
+    expect(JSON.stringify(snapshotSafetyBackup.data.library)).toContain("스냅샷 이후 제목");
 
     const txtDownloadPromise = page.waitForEvent("download");
     await page.locator("#btnExportTxt").click();
@@ -490,6 +517,12 @@ test("launcher opens isolated test mode without touching production storage", as
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#sidebarList .chapter-item.active [data-action='delete-chapter']").click({ force: true });
     await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(1);
+    const deleteSafetyBackup = await page.evaluate(() => {
+        const backups = JSON.parse(localStorage.getItem("webeditor:test:safety-backups"));
+        return backups[0];
+    });
+    expect(deleteSafetyBackup.reason).toBe("delete-chapter");
+    expect(JSON.stringify(deleteSafetyBackup.data.library)).toContain("2화");
 
     await page.setInputFiles("#fileInput", {
         name: "imported-chapter.txt",
@@ -506,6 +539,15 @@ test("launcher opens isolated test mode without touching production storage", as
     await page.locator("#btnSaveCharacter").click();
     await expect(page.locator("#characterList")).toContainText("테스트 캐릭터");
     await page.locator("#btnCloseCharacters").click();
+
+    const backupDownloadPromise = page.waitForEvent("download");
+    await page.locator("#btnBackup").click();
+    const backupDownload = await backupDownloadPromise;
+    const backupDownloadPath = await backupDownload.path();
+    const backupFile = JSON.parse(fs.readFileSync(backupDownloadPath, "utf8"));
+    expect(backupFile.characters.some((character) => character.name === "테스트 캐릭터")).toBe(true);
+    expect(backupFile.lastActive?.novelId).toBeTruthy();
+    expect(backupFile.lastActive?.chapterId).toBeTruthy();
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#btnSnapshotSave").click();
@@ -531,6 +573,21 @@ test("launcher opens isolated test mode without touching production storage", as
         settings: { targetCount: 1200 },
         characters: [],
     };
+    const safetyBackupCountBeforeInvalidRestore = await page.evaluate(() => {
+        return JSON.parse(localStorage.getItem("webeditor:test:safety-backups")).length;
+    });
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.setInputFiles("#backupInput", {
+        name: "invalid-backup.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(JSON.stringify({ library: "not-an-array" })),
+    });
+    await expect(page.locator("#sidebarList")).not.toContainText("백업 복원 소설");
+    const safetyBackupCountAfterInvalidRestore = await page.evaluate(() => {
+        return JSON.parse(localStorage.getItem("webeditor:test:safety-backups")).length;
+    });
+    expect(safetyBackupCountAfterInvalidRestore).toBe(safetyBackupCountBeforeInvalidRestore);
+
     page.once("dialog", (dialog) => dialog.accept());
     await page.setInputFiles("#backupInput", {
         name: "test-backup.json",
@@ -544,6 +601,12 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(restoredHtml).not.toContain("script");
     expect(restoredHtml).not.toContain("onerror");
     expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+    const restoreSafetyBackup = await page.evaluate(() => {
+        const backups = JSON.parse(localStorage.getItem("webeditor:test:safety-backups"));
+        return backups[0];
+    });
+    expect(restoreSafetyBackup.reason).toBe("backup-restore");
+    expect(JSON.stringify(restoreSafetyBackup.data.library)).toContain("회귀 테스트 소설");
 
     await page.setViewportSize({ width: 390, height: 800 });
     await page.locator("#btnMobileMenu").click();

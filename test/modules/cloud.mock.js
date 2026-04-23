@@ -8,6 +8,11 @@ export function createCloudMock() {
         },
 
         async syncState(state) {
+            if (localStorage.getItem(STORAGE_KEYS.cloudFailNextSync) === "1") {
+                localStorage.removeItem(STORAGE_KEYS.cloudFailNextSync);
+                throw new Error("Forced mock cloud sync failure");
+            }
+
             const now = new Date().toISOString();
             const cloudState = {
                 user: MOCK_USER,

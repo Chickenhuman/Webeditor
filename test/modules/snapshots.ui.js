@@ -16,10 +16,11 @@ export function createSnapshotController({
     setLibrary,
     setSettings,
     setCharacters,
+    createSafetyBackup = () => {},
 }) {
     async function saveSnapshot() {
         if (!window.confirm(MESSAGES.snapshotSaveConfirm)) return;
-        performSave();
+        await performSave();
         await cloud.saveSnapshot(getSnapshotState());
         showToast("mock 스냅샷이 저장되었습니다.");
     }
@@ -74,6 +75,7 @@ export function createSnapshotController({
             return;
         }
 
+        createSafetyBackup("snapshot-restore");
         const library = sanitizeLibrary(cloneData(snapshot.data.library));
         const settings = { ...DEFAULT_SETTINGS, ...cloneData(snapshot.data.settings) };
         const characters = sanitizeCharacters(cloneData(snapshot.data.characters));

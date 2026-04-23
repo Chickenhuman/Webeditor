@@ -19,6 +19,7 @@ export function createLibraryController({
     editorController,
     performSave,
     updateSavedIndicator,
+    createSafetyBackup = () => {},
 }) {
     let currentNovelId = null;
     let currentChapterId = null;
@@ -148,6 +149,7 @@ export function createLibraryController({
 
     async function deleteNovel(id) {
         if (!window.confirm("선택한 테스트 소설을 삭제할까요?")) return;
+        createSafetyBackup("delete-novel");
         const nextLibrary = getLibrary().filter((novel) => novel.id !== id);
         setLibrary(nextLibrary);
         if (!nextLibrary.length) {
@@ -217,8 +219,12 @@ export function createLibraryController({
         }
         if (!window.confirm("선택한 테스트 챕터를 삭제할까요?")) return;
 
-        novel.chapters = novel.chapters.filter((chapter) => chapter.id !== id);
-        currentChapterId = novel.chapters[0].id;
+        createSafetyBackup("delete-chapter");
+        const currentNovel = getCurrentNovel();
+        if (!currentNovel) return;
+
+        currentNovel.chapters = currentNovel.chapters.filter((chapter) => chapter.id !== id);
+        currentChapterId = currentNovel.chapters[0].id;
         persistLocalState();
         loadChapter(currentChapterId);
     }

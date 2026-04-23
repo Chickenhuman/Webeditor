@@ -12,13 +12,14 @@ export function downloadNovel(format, novel) {
     downloadDocxLikeHtml(novel);
 }
 
-export function backupTestState({ library, settings, characters }) {
+export function backupTestState({ library, settings, characters, lastActive }) {
     const payload = {
         version: APP_CONFIG.version,
         backupDate: new Date().toISOString(),
         library,
         settings,
         characters,
+        lastActive,
     };
     saveBlob(
         new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),

@@ -11,6 +11,7 @@ import {
     saveCharacters,
     saveLastActive,
     saveLibrary,
+    saveSafetyBackup,
     saveSettings,
 } from "./modules/storage.js";
 import {
@@ -102,6 +103,23 @@ function getSnapshotState() {
     };
 }
 
+function createSafetyBackup(reason) {
+    const novel = getCurrentNovel();
+    const chapter = getCurrentChapter();
+
+    if (novel && chapter) {
+        editorController.syncFromHtmlMode();
+        chapter.title = toSafeText(elements.titleInput.value.trim() || "무제");
+        chapter.content = sanitizeHtml(elements.editor.innerHTML);
+        elements.editor.innerHTML = chapter.content;
+        elements.htmlEditor.value = chapter.content;
+        novel.memo = toSafeText(elements.memoTextarea.value);
+    }
+
+    persistLocalState();
+    return saveSafetyBackup(reason, getSnapshotState());
+}
+
 function initControllers() {
     editorController = createEditorController({
         elements,
@@ -124,6 +142,7 @@ function initControllers() {
         editorController,
         performSave,
         updateSavedIndicator,
+        createSafetyBackup,
     });
 
     settingsController = createSettingsController({
@@ -159,6 +178,7 @@ function initControllers() {
         setLibrary: setLibraryState,
         setSettings: setSettingsState,
         setCharacters: setCharactersState,
+        createSafetyBackup,
     });
 }
 
@@ -179,6 +199,13 @@ function updateSavedIndicator(message = MESSAGES.ready) {
     elements.lastSavedDisplay.classList.remove("unsaved");
 }
 
+function updateSaveFailureIndicator() {
+    hasUnsavedChanges = false;
+    elements.unsavedDot.classList.remove("active");
+    elements.lastSavedDisplay.textContent = MESSAGES.savedCloudFailed;
+    elements.lastSavedDisplay.classList.add("unsaved");
+}
+
 function markAsUnsaved() {
     if (!hasUnsavedChanges) {
         hasUnsavedChanges = true;
@@ -189,7 +216,10 @@ function markAsUnsaved() {
     editorController?.updateCount();
 }
 
-function performSave() {
+async function performSave(options = {}) {
+    const saveOptions = options?.type ? {} : options;
+    const syncCloud = saveOptions.syncCloud !== false;
+
     if (libraryController.getViewMode() === "library") return;
     const novel = getCurrentNovel();
     const chapter = getCurrentChapter();
@@ -205,8 +235,21 @@ function performSave() {
     elements.htmlEditor.value = chapter.content;
     novel.memo = toSafeText(elements.memoTextarea.value);
     persistLocalState();
-    updateSavedIndicator(MESSAGES.savedLocal);
-    syncMockCloud().catch((error) => console.error("Mock cloud save failed", error));
+    if (!syncCloud) {
+        updateSavedIndicator(MESSAGES.savedLocal);
+        return;
+    }
+
+    elements.unsavedDot.classList.remove("active");
+    elements.lastSavedDisplay.textContent = MESSAGES.savingCloud;
+    elements.lastSavedDisplay.classList.remove("unsaved");
+
+    try {
+        await syncMockCloud();
+    } catch (error) {
+        console.warn("Mock cloud save failed", error);
+        updateSaveFailureIndicator();
+    }
 }
 
 function toggleMemoPanel() {
@@ -220,12 +263,13 @@ function downloadAll(format) {
     downloadNovel(format, novel);
 }
 
-function backupData() {
-    performSave();
+async function backupData() {
+    await performSave({ syncCloud: false });
     backupTestState({
         library,
         settings,
         characters,
+        lastActive: getLastActive(),
     });
 }
 
@@ -237,16 +281,30 @@ function restoreData(event) {
     reader.onload = () => {
         try {
             const data = JSON.parse(reader.result);
-            library = Array.isArray(data.library) ? sanitizeLibrary(data.library) : library;
-            settings = { ...settings, ...(data.settings || {}) };
-            characters = Array.isArray(data.characters) ? sanitizeCharacters(data.characters) : characters;
+            if (!data || !Array.isArray(data.library)) {
+                throw new Error("Backup library must be an array.");
+            }
+
+            const restoredLibrary = sanitizeLibrary(data.library);
+            const restoredSettings = data.settings && typeof data.settings === "object"
+                ? { ...settings, ...data.settings }
+                : settings;
+            const restoredCharacters = Array.isArray(data.characters)
+                ? sanitizeCharacters(data.characters)
+                : characters;
+
+            createSafetyBackup("backup-restore");
+            library = restoredLibrary;
+            settings = restoredSettings;
+            characters = restoredCharacters;
             persistLocalState();
+            if (data.lastActive) saveLastActive(data.lastActive);
             settingsController.applySettings();
             editorController.renderSymbols();
             libraryController.renderLibrary();
             showToast("테스트 백업 복원이 완료되었습니다.");
         } catch (error) {
-            console.error(error);
+            console.warn(error);
             showToast("백업 파일을 읽지 못했습니다.");
         } finally {
             event.target.value = "";
@@ -279,7 +337,9 @@ function bindEvents() {
         });
     }
 
-    elements.btnSave.addEventListener("click", performSave);
+    elements.btnSave.addEventListener("click", () => {
+        void performSave();
+    });
     elements.btnResetTestData.addEventListener("click", async () => {
         if (!window.confirm(MESSAGES.testDataResetConfirm)) return;
         const state = normalizeState(resetTestData());
@@ -298,7 +358,9 @@ function bindEvents() {
     elements.btnCharacters.addEventListener("click", characterController.openCharacterModal);
     elements.btnSnapshotSave.addEventListener("click", snapshotController.saveSnapshot);
     elements.btnSnapshots.addEventListener("click", snapshotController.openSnapshotList);
-    elements.btnBackup.addEventListener("click", backupData);
+    elements.btnBackup.addEventListener("click", () => {
+        void backupData();
+    });
     elements.btnFileOpen.addEventListener("click", () => elements.fileInput.click());
     elements.btnBackupRestore.addEventListener("click", () => elements.backupInput.click());
     elements.backupInput.addEventListener("change", restoreData);
