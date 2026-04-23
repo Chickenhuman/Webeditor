@@ -57,6 +57,7 @@ let historyDebounceTimer = null;
 let autoSaveTimerId = null;
 let hasUnsavedChanges = false;
 let isHtmlMode = false;
+let isViewerMode = false;
 let pendingPasteMode = 'rich';
 let viewMode = 'library';
 let currentUser = null;
@@ -97,6 +98,8 @@ const titleInput = document.getElementById('titleInput');
 const editorWrapper = document.getElementById('editorWrapper'); // [NEW] 에디터 전체 래퍼
 const editor = document.getElementById('mainEditor');
 const htmlEditor = document.getElementById('htmlSourceEditor');
+const viewerModeBtn = document.getElementById('viewerModeBtn');
+const formatToolbar = document.getElementById('formatToolbar');
 const sidebarListEl = document.getElementById('sidebarList');
 const sidebarTitle = document.getElementById('sidebarTitle');
 const sidebarActionBtn = document.getElementById('sidebarActionBtn');
@@ -438,7 +441,8 @@ function markdownToHtml(markdown) {
         flushList();
     };
 
-    for (const line of lines) {
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
         const fenceMatch = line.match(/^\s*```/);
         if (codeFence) {
             if (fenceMatch) {
@@ -458,6 +462,21 @@ function markdownToHtml(markdown) {
 
         if (!line.trim()) {
             flushOpenBlocks();
+            continue;
+        }
+
+        if (isMarkdownTable(lines, index)) {
+            flushOpenBlocks();
+            const header = splitMarkdownTableRow(line);
+            const divider = lines[index + 1];
+            const rows = [];
+            index += 2;
+            while (index < lines.length && isMarkdownTableRow(lines[index])) {
+                rows.push(splitMarkdownTableRow(lines[index]));
+                index += 1;
+            }
+            index -= 1;
+            blocks.push(renderMarkdownTable(header, divider, rows));
             continue;
         }
 
@@ -544,6 +563,79 @@ function renderMarkdownFormattedText(text) {
         .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
         .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
         .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+}
+
+function isMarkdownTable(lines, index) {
+    return isMarkdownTableRow(lines[index]) && isMarkdownTableDivider(lines[index + 1]);
+}
+
+function isMarkdownTableRow(line) {
+    return /\|/.test(String(line || '').trim());
+}
+
+function isMarkdownTableDivider(line) {
+    const cells = splitMarkdownTableRow(line);
+    return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitMarkdownTableRow(line) {
+    const trimmed = String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '');
+    const cells = [];
+    let current = '';
+    let escaped = false;
+
+    for (const character of trimmed) {
+        if (escaped) {
+            current += character;
+            escaped = false;
+            continue;
+        }
+        if (character === '\\') {
+            escaped = true;
+            continue;
+        }
+        if (character === '|') {
+            cells.push(current.trim());
+            current = '';
+            continue;
+        }
+        current += character;
+    }
+    cells.push(current.trim());
+    return cells;
+}
+
+function renderMarkdownTable(header, divider, rows) {
+    const alignments = splitMarkdownTableRow(divider).map(getMarkdownTableAlignment);
+    const width = header.length;
+    const head = normalizeMarkdownTableCells(header, width)
+        .map((cell, index) => renderMarkdownTableCell('th', cell, alignments[index]))
+        .join('');
+    const body = rows.map((row) => {
+        const cells = normalizeMarkdownTableCells(row, width)
+            .map((cell, index) => renderMarkdownTableCell('td', cell, alignments[index]))
+            .join('');
+        return `<tr>${cells}</tr>`;
+    }).join('');
+
+    return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function normalizeMarkdownTableCells(cells, width) {
+    return Array.from({ length: width }, (_, index) => cells[index] || '');
+}
+
+function renderMarkdownTableCell(tagName, cell, alignment) {
+    const style = alignment ? ` style="text-align: ${alignment}"` : '';
+    return `<${tagName}${style}>${renderMarkdownInline(cell)}</${tagName}>`;
+}
+
+function getMarkdownTableAlignment(cell) {
+    const trimmed = String(cell || '').trim();
+    if (trimmed.startsWith(':') && trimmed.endsWith(':')) return 'center';
+    if (trimmed.endsWith(':')) return 'right';
+    if (trimmed.startsWith(':')) return 'left';
+    return '';
 }
 
 function sanitizeMarkdownUrl(value) {
@@ -964,6 +1056,7 @@ function recordHistory() {
     redoStack = [];
 }
 function performUndo() {
+    if (isViewerMode) return;
     if (undoStack.length === 0) return;
     redoStack.push(isHtmlMode ? htmlEditor.value : editor.innerHTML);
     const prev = undoStack.pop();
@@ -971,6 +1064,7 @@ function performUndo() {
     updateCount();
 }
 function performRedo() {
+    if (isViewerMode) return;
     if (redoStack.length === 0) return;
     undoStack.push(isHtmlMode ? htmlEditor.value : editor.innerHTML);
     const next = redoStack.pop();
@@ -986,11 +1080,16 @@ document.addEventListener('keydown', (e) => {
         pendingPasteMode = e.shiftKey ? 'plain' : 'rich';
         window.setTimeout(() => { pendingPasteMode = 'rich'; }, 1000);
     }
+    if (isViewerMode) return;
     if (!isEditorTarget && document.activeElement !== htmlEditor) return;
     if ((e.ctrlKey||e.metaKey) && !e.shiftKey && key==='z') { e.preventDefault(); performUndo(); }
     if ((e.ctrlKey||e.metaKey) && (key==='y' || (e.shiftKey && key==='z'))) { e.preventDefault(); performRedo(); }
 });
-editor.addEventListener('beforeinput', () => {
+editor.addEventListener('beforeinput', (event) => {
+    if (isViewerMode) {
+        event.preventDefault();
+        return;
+    }
     if (!historyDebounceTimer) recordHistory();
     clearTimeout(historyDebounceTimer);
     historyDebounceTimer = setTimeout(() => { historyDebounceTimer = null; }, 1000);
@@ -1077,6 +1176,7 @@ if (versionDisplay) {
 window.performSave = performSave;
 window.autoLineBreak = autoLineBreak;
 window.toggleMemoPanel = toggleMemoPanel;
+window.toggleViewerMode = toggleViewerMode;
 window.toggleHtmlMode = toggleHtmlMode;
 window.downloadAll = downloadAll;
 window.backupData = backupData;
@@ -1508,9 +1608,31 @@ targetCountInput.addEventListener('input', () => { settings.targetCount = target
 goalTypeSelect.addEventListener('change', () => { settings.goalType = goalTypeSelect.value; settings = sanitizeSettings(settings); localStorage.setItem('editorSettings', JSON.stringify(settings)); updateGoalProgress(); });
 memoTextarea.addEventListener('input', () => markAsUnsaved());
 
-function insertSymbol(o, c) { if(isHtmlMode)return; recordHistory(); document.execCommand('insertText',false,o+c); if(c){const s=window.getSelection(),r=s.getRangeAt(0);r.setStart(r.startContainer,r.startOffset-1);r.setEnd(r.startContainer,r.startOffset-1);s.removeAllRanges();s.addRange(r);} editor.focus(); markAsUnsaved(); }
+function insertSymbol(o, c) { if(isHtmlMode||isViewerMode)return; recordHistory(); document.execCommand('insertText',false,o+c); if(c){const s=window.getSelection(),r=s.getRangeAt(0);r.setStart(r.startContainer,r.startOffset-1);r.setEnd(r.startContainer,r.startOffset-1);s.removeAllRanges();s.addRange(r);} editor.focus(); markAsUnsaved(); }
 function toggleMemoPanel() { memoPanel.classList.toggle('open'); }
+function toggleViewerMode() {
+    isViewerMode = !isViewerMode;
+    if (isViewerMode && isHtmlMode) toggleHtmlMode();
+
+    editor.setAttribute('contenteditable', isViewerMode ? 'false' : 'true');
+    editor.classList.toggle('viewer-mode', isViewerMode);
+    editorWrapper.classList.toggle('viewer-mode', isViewerMode);
+    titleInput.disabled = isViewerMode;
+    if (viewerModeBtn) {
+        viewerModeBtn.classList.toggle('active', isViewerMode);
+        viewerModeBtn.setAttribute('aria-pressed', String(isViewerMode));
+    }
+
+    const htmlModeButton = document.querySelector('.code-btn');
+    if (htmlModeButton) htmlModeButton.disabled = isViewerMode;
+    if (formatToolbar) {
+        formatToolbar.querySelectorAll('button').forEach((button) => {
+            button.disabled = isViewerMode;
+        });
+    }
+}
 function toggleHtmlMode() {
+    if (!isHtmlMode && isViewerMode) toggleViewerMode();
     isHtmlMode = !isHtmlMode;
     if (isHtmlMode) {
         htmlEditor.value = sanitizeHtmlContent(editor.innerHTML);
@@ -1526,7 +1648,7 @@ function toggleHtmlMode() {
     }
 }
 function toggleSearchModal(){searchModal.style.display=(searchModal.style.display==='none'?'block':'none');if(searchModal.style.display==='block')findInput.focus();}
-function execCmd(c){ if(isHtmlMode)return; recordHistory(); document.execCommand(c,false,null); editor.focus(); markAsUnsaved(); }
+function execCmd(c){ if(isHtmlMode||isViewerMode)return; recordHistory(); document.execCommand(c,false,null); editor.focus(); markAsUnsaved(); }
 function extractPlainTextFromPastedHtml(html) {
     if (!html) return '';
     const template = document.createElement('template');
@@ -1561,7 +1683,7 @@ function insertPlainClipboardText(text) {
 }
 
 function insertClipboardContent(payload, mode = 'rich') {
-    if (isHtmlMode) return false;
+    if (isHtmlMode || isViewerMode) return false;
 
     const html = payload?.html || '';
     const text = payload?.text || '';
@@ -1615,6 +1737,10 @@ async function pasteFromClipboard(mode = 'rich') {
 }
 
 editor.addEventListener('paste', e => {
+    if (isViewerMode) {
+        e.preventDefault();
+        return;
+    }
     if (isHtmlMode) return;
 
     const clipboard = e.clipboardData || window.clipboardData;
@@ -1629,8 +1755,8 @@ editor.addEventListener('paste', e => {
     e.preventDefault();
     insertClipboardContent({ html, text }, mode);
 });
-function findAndReplace(){ const f=findInput.value,r=replaceInput.value; if(!f||isHtmlMode)return; if(!confirm('변경?'))return; const c=editor.innerHTML; const n=sanitizeHtmlContent(c.split(f).join(r)); if(c===n)alert('없음'); else { recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); toggleSearchModal(); alert('완료'); } }
-function autoLineBreak(){ if(isHtmlMode)return; const o=document.getElementById('lineBreakOption').value,ig=document.getElementById('ignoreEllipsis').checked,br=(o==='2'?'<br><br>':'<br>'); let h=editor.innerHTML,rx=ig ? /("[^"]*")|((?<!\.)\.(\s|&nbsp;))/g : /("[^"]*")|(\.(\s|&nbsp;))/g; const n=sanitizeHtmlContent(h.replace(rx, (m,q)=>{ return q ? m : '.'+br; })); if(h!==n){ recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); alert('완료'); } else alert('변경없음'); }
+function findAndReplace(){ const f=findInput.value,r=replaceInput.value; if(!f||isHtmlMode||isViewerMode)return; if(!confirm('변경?'))return; const c=editor.innerHTML; const n=sanitizeHtmlContent(c.split(f).join(r)); if(c===n)alert('없음'); else { recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); toggleSearchModal(); alert('완료'); } }
+function autoLineBreak(){ if(isHtmlMode||isViewerMode)return; const o=document.getElementById('lineBreakOption').value,ig=document.getElementById('ignoreEllipsis').checked,br=(o==='2'?'<br><br>':'<br>'); let h=editor.innerHTML,rx=ig ? /("[^"]*")|((?<!\.)\.(\s|&nbsp;))/g : /("[^"]*")|(\.(\s|&nbsp;))/g; const n=sanitizeHtmlContent(h.replace(rx, (m,q)=>{ return q ? m : '.'+br; })); if(h!==n){ recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); alert('완료'); } else alert('변경없음'); }
 
 async function downloadAll(format) {
     const n = getCurrentNovel(); if(!n) return; await performSave({ syncCloud: false });

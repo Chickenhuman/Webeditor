@@ -41,7 +41,8 @@ export function markdownToHtml(markdown) {
         flushList();
     };
 
-    for (const line of lines) {
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
         const fenceMatch = line.match(/^\s*```/);
         if (codeFence) {
             if (fenceMatch) {
@@ -61,6 +62,21 @@ export function markdownToHtml(markdown) {
 
         if (!line.trim()) {
             flushOpenBlocks();
+            continue;
+        }
+
+        if (isMarkdownTable(lines, index)) {
+            flushOpenBlocks();
+            const header = splitTableRow(line);
+            const divider = lines[index + 1];
+            const rows = [];
+            index += 2;
+            while (index < lines.length && isTableRow(lines[index])) {
+                rows.push(splitTableRow(lines[index]));
+                index += 1;
+            }
+            index -= 1;
+            blocks.push(renderTable(header, divider, rows));
             continue;
         }
 
@@ -147,6 +163,79 @@ function renderFormattedText(text) {
         .replace(/~~([^~\n]+)~~/g, "<s>$1</s>")
         .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
         .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
+}
+
+function isMarkdownTable(lines, index) {
+    return isTableRow(lines[index]) && isTableDivider(lines[index + 1]);
+}
+
+function isTableRow(line) {
+    return /\|/.test(String(line || "").trim());
+}
+
+function isTableDivider(line) {
+    const cells = splitTableRow(line);
+    return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitTableRow(line) {
+    const trimmed = String(line || "").trim().replace(/^\|/, "").replace(/\|$/, "");
+    const cells = [];
+    let current = "";
+    let escaped = false;
+
+    for (const character of trimmed) {
+        if (escaped) {
+            current += character;
+            escaped = false;
+            continue;
+        }
+        if (character === "\\") {
+            escaped = true;
+            continue;
+        }
+        if (character === "|") {
+            cells.push(current.trim());
+            current = "";
+            continue;
+        }
+        current += character;
+    }
+    cells.push(current.trim());
+    return cells;
+}
+
+function renderTable(header, divider, rows) {
+    const alignments = splitTableRow(divider).map(getTableAlignment);
+    const width = header.length;
+    const head = normalizeTableCells(header, width)
+        .map((cell, index) => renderTableCell("th", cell, alignments[index]))
+        .join("");
+    const body = rows.map((row) => {
+        const cells = normalizeTableCells(row, width)
+            .map((cell, index) => renderTableCell("td", cell, alignments[index]))
+            .join("");
+        return `<tr>${cells}</tr>`;
+    }).join("");
+
+    return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function normalizeTableCells(cells, width) {
+    return Array.from({ length: width }, (_, index) => cells[index] || "");
+}
+
+function renderTableCell(tagName, cell, alignment) {
+    const style = alignment ? ` style="text-align: ${alignment}"` : "";
+    return `<${tagName}${style}>${renderInline(cell)}</${tagName}>`;
+}
+
+function getTableAlignment(cell) {
+    const trimmed = String(cell || "").trim();
+    if (trimmed.startsWith(":") && trimmed.endsWith(":")) return "center";
+    if (trimmed.endsWith(":")) return "right";
+    if (trimmed.startsWith(":")) return "left";
+    return "";
 }
 
 function sanitizeMarkdownUrl(value) {

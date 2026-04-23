@@ -181,6 +181,8 @@ body {
 .btn-tool:hover { background: #f8f9fa; border-color: #ccc; }
 .btn-tool.primary { background: var(--primary); color: white; border-color: var(--primary); font-weight: 600; }
 .btn-tool.primary:hover { background: var(--primary-hover); }
+.btn-tool.active { background: var(--primary); color: white; border-color: var(--primary); }
+.btn-tool:disabled { opacity: 0.55; cursor: not-allowed; }
 .icon-btn { padding: 0; width: 30px; font-size: 14px; }
 .code-btn { font-family: monospace; font-weight: bold; }
 
@@ -206,12 +208,13 @@ body {
     position: relative;
 }
 
-.chapter-title-input { 
-    width: 100%; padding: 20px 40px 10px; font-size: 24px; font-weight: 800; 
+.chapter-title-input {
+    width: 100%; padding: 20px 40px 10px; font-size: 24px; font-weight: 800;
     border: none; outline: none; color: var(--text-main); background: var(--bg-panel);
     border-bottom: 1px solid transparent; transition: border 0.2s;
 }
 .chapter-title-input:focus { border-bottom-color: var(--primary); }
+.chapter-title-input:disabled { opacity: 1; cursor: default; }
 
 .format-toolbar { 
     padding: 8px 40px; background: var(--bg-panel); 
@@ -228,10 +231,12 @@ body {
 .btn-paste { font-family: inherit; min-width: 44px; text-align: center; }
 
 .editor-scroll-area { flex-grow: 1; overflow-y: auto; padding-bottom: 40px; }
-.editor { 
-    padding: 30px 10% 80px; font-size: 16px; line-height: 1.8; 
+.editor {
+    padding: 30px 10% 80px; font-size: 16px; line-height: 1.8;
     color: var(--text-main); outline: none; min-height: 500px;
 }
+.editor.viewer-mode { cursor: default; }
+.editor-wrapper.viewer-mode .format-toolbar { display: none; }
 .editor:empty:before { content: attr(placeholder); color: #bbb; }
 .html-editor { 
     width: 100%; height: 100%; background: var(--code-bg); color: var(--code-text); 

@@ -516,6 +516,18 @@ test("launcher opens isolated test mode without touching production storage", as
     await expect(page.locator("#mainEditor")).toContainText("굵은 안전 문장");
     expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 
+    await page.locator("#btnViewerMode").click();
+    await expect(page.locator("#btnViewerMode")).toHaveClass(/active/);
+    await expect(page.locator("#mainEditor")).toHaveAttribute("contenteditable", "false");
+    await expect(page.locator("#titleInput")).toBeDisabled();
+    await expect(page.locator("#btnHtmlMode")).toBeDisabled();
+    await page.locator("#mainEditor").click();
+    await page.keyboard.type("viewer blocked");
+    await expect(page.locator("#mainEditor")).not.toContainText("viewer blocked");
+    await page.locator("#btnViewerMode").click();
+    await expect(page.locator("#mainEditor")).toHaveAttribute("contenteditable", "true");
+    await expect(page.locator("#titleInput")).toBeEnabled();
+
     await page.locator("#mainEditor").fill("");
     await page.locator("#mainEditor").focus();
     await page.keyboard.type("undo check");
@@ -652,14 +664,21 @@ test("launcher opens isolated test mode without touching production storage", as
             "- 첫 항목",
             "- 둘째 항목",
             "",
+            "| 이름 | 값 |",
+            "| --- | ---: |",
+            "| 굵게 | **서식** |",
+            "",
             '<img src=x onerror="window.__mdImportXss = 1">',
         ].join("\n")),
     });
     await expect(page.locator("#titleInput")).toHaveValue("markdown-chapter");
     await expect(page.locator("#mainEditor h1")).toContainText("마크다운 챕터");
-    await expect(page.locator("#mainEditor strong")).toContainText("강조");
+    await expect(page.locator("#mainEditor strong").first()).toContainText("강조");
     await expect(page.locator("#mainEditor code")).toContainText("코드");
     await expect(page.locator("#mainEditor li")).toHaveCount(2);
+    await expect(page.locator("#mainEditor table th")).toHaveCount(2);
+    await expect(page.locator("#mainEditor table td")).toHaveCount(2);
+    await expect(page.locator("#mainEditor table strong")).toContainText("서식");
     expect(await page.evaluate(() => window.__mdImportXss)).toBeUndefined();
 
     await page.locator("#btnCharacters").click();
@@ -883,6 +902,18 @@ test("production index hardens stored data and safety restores", async ({ page }
     expect(pastedProductionHtml).not.toContain("onclick");
     expect(await page.evaluate(() => window.__pasteXss)).toBeUndefined();
 
+    await page.locator("#viewerModeBtn").click();
+    await expect(page.locator("#viewerModeBtn")).toHaveClass(/active/);
+    await expect(page.locator("#mainEditor")).toHaveAttribute("contenteditable", "false");
+    await expect(page.locator("#titleInput")).toBeDisabled();
+    await expect(page.locator(".code-btn")).toBeDisabled();
+    await page.locator("#mainEditor").click();
+    await page.keyboard.type("production viewer blocked");
+    await expect(page.locator("#mainEditor")).not.toContainText("production viewer blocked");
+    await page.locator("#viewerModeBtn").click();
+    await expect(page.locator("#mainEditor")).toHaveAttribute("contenteditable", "true");
+    await expect(page.locator("#titleInput")).toBeEnabled();
+
     await withDialogResponses(page, ["", ""], async () => {
         await page.setInputFiles("#backupInput", {
             name: "invalid-production-backup.json",
@@ -927,13 +958,20 @@ test("production index hardens stored data and safety restores", async ({ page }
             "1. 첫 항목",
             "2. 둘째 항목",
             "",
+            "| 이름 | 값 |",
+            "| --- | ---: |",
+            "| 굵게 | **서식** |",
+            "",
             '<img src=x onerror="window.__productionMdXss = 1">',
         ].join("\n")),
     });
     await expect(page.locator("#titleInput")).toHaveValue("production-markdown");
     await expect(page.locator("#mainEditor h2")).toContainText("운영 마크다운");
-    await expect(page.locator("#mainEditor strong")).toContainText("강조");
+    await expect(page.locator("#mainEditor strong").first()).toContainText("강조");
     await expect(page.locator("#mainEditor li")).toHaveCount(2);
+    await expect(page.locator("#mainEditor table th")).toHaveCount(2);
+    await expect(page.locator("#mainEditor table td")).toHaveCount(2);
+    await expect(page.locator("#mainEditor table strong")).toContainText("서식");
     const markdownImportState = await page.evaluate(() => {
         const library = JSON.parse(localStorage.getItem("novelLibrary"));
         const imported = library[0].chapters.find((chapter) => chapter.title === "production-markdown");

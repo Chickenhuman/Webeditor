@@ -10,6 +10,7 @@ export function createEditorController({
     markAsUnsaved,
 }) {
     let isHtmlMode = false;
+    let isViewerMode = false;
     let historyDebounceTimer = null;
     let undoStack = [];
     let redoStack = [];
@@ -17,6 +18,10 @@ export function createEditorController({
 
     function isHtmlModeActive() {
         return isHtmlMode;
+    }
+
+    function isViewerModeActive() {
+        return isViewerMode;
     }
 
     function resetHistory() {
@@ -67,12 +72,14 @@ export function createEditorController({
     }
 
     function performUndo() {
+        if (isViewerMode) return;
         if (!undoStack.length) return;
         redoStack.push(isHtmlMode ? sanitizeHtml(elements.htmlEditor.value) : sanitizeHtml(elements.editor.innerHTML));
         applyHistoryContent(undoStack.pop());
     }
 
     function performRedo() {
+        if (isViewerMode) return;
         if (!redoStack.length) return;
         undoStack.push(isHtmlMode ? sanitizeHtml(elements.htmlEditor.value) : sanitizeHtml(elements.editor.innerHTML));
         applyHistoryContent(redoStack.pop());
@@ -86,6 +93,7 @@ export function createEditorController({
     }
 
     function setHtmlMode(enabled) {
+        if (enabled && isViewerMode) setViewerMode(false);
         isHtmlMode = enabled;
         if (isHtmlMode) {
             elements.htmlEditor.value = sanitizeHtml(elements.editor.innerHTML);
@@ -102,6 +110,23 @@ export function createEditorController({
         setHidden(elements.editor, false);
         elements.btnHtmlMode.classList.remove("active");
         updateCount();
+    }
+
+    function setViewerMode(enabled) {
+        isViewerMode = Boolean(enabled);
+        if (isViewerMode && isHtmlMode) setHtmlMode(false);
+
+        elements.editor.setAttribute("contenteditable", isViewerMode ? "false" : "true");
+        elements.editor.classList.toggle("viewer-mode", isViewerMode);
+        elements.editorWrapper.classList.toggle("viewer-mode", isViewerMode);
+        elements.titleInput.disabled = isViewerMode;
+        elements.btnHtmlMode.disabled = isViewerMode;
+        elements.btnViewerMode.classList.toggle("active", isViewerMode);
+        elements.btnViewerMode.setAttribute("aria-pressed", String(isViewerMode));
+
+        for (const button of elements.formatToolbar.querySelectorAll("button")) {
+            button.disabled = isViewerMode;
+        }
     }
 
     function renderSymbols() {
@@ -123,7 +148,7 @@ export function createEditorController({
     }
 
     function insertSymbol(open, close = "") {
-        if (isHtmlMode) return;
+        if (isHtmlMode || isViewerMode) return;
         recordHistory();
         elements.editor.focus();
         document.execCommand("insertText", false, `${open}${close}`);
@@ -175,7 +200,7 @@ export function createEditorController({
     }
 
     function insertClipboardContent({ html = "", text = "" }, mode = "rich") {
-        if (isHtmlMode) return;
+        if (isHtmlMode || isViewerMode) return;
 
         const plainText = text || extractPlainTextFromHtml(html);
         const safeHtml = mode === "rich" && html ? sanitizeClipboardHtml(html) : "";
@@ -196,6 +221,10 @@ export function createEditorController({
     }
 
     function pasteClipboardContent(event) {
+        if (isViewerMode) {
+            event.preventDefault();
+            return;
+        }
         if (isHtmlMode) return;
 
         const clipboard = event.clipboardData || window.clipboardData;
@@ -243,7 +272,7 @@ export function createEditorController({
     }
 
     function executeFormatCommand(command) {
-        if (isHtmlMode) return;
+        if (isHtmlMode || isViewerMode) return;
         recordHistory();
         document.execCommand(command, false, null);
         elements.editor.focus();
@@ -258,7 +287,7 @@ export function createEditorController({
     function findAndReplace() {
         const find = elements.findInput.value;
         const replace = elements.replaceInput.value;
-        if (!find || isHtmlMode) return;
+        if (!find || isHtmlMode || isViewerMode) return;
         if (!window.confirm(MESSAGES.replaceConfirm)) return;
 
         const before = sanitizeHtml(elements.editor.innerHTML);
@@ -276,7 +305,7 @@ export function createEditorController({
     }
 
     function autoLineBreak() {
-        if (isHtmlMode) return;
+        if (isHtmlMode || isViewerMode) return;
         const lineBreak = elements.lineBreakOption.value === "2" ? "<br><br>" : "<br>";
         const ignoreEllipsis = elements.ignoreEllipsis.checked;
         const pattern = ignoreEllipsis ? /(?<!\.)\.(\s|&nbsp;)/g : /\.(\s|&nbsp;)/g;
@@ -320,6 +349,7 @@ export function createEditorController({
 
     function bindEvents() {
         elements.btnRunLineBreak.addEventListener("click", autoLineBreak);
+        elements.btnViewerMode.addEventListener("click", () => setViewerMode(!isViewerMode));
         elements.btnHtmlMode.addEventListener("click", () => setHtmlMode(!isHtmlMode));
         elements.formatToolbar.addEventListener("click", (event) => {
             const commandButton = event.target.closest("[data-command]");
@@ -343,7 +373,11 @@ export function createEditorController({
         elements.btnCloseSearch.addEventListener("click", toggleSearchModal);
         elements.btnReplaceAll.addEventListener("click", findAndReplace);
         elements.editor.addEventListener("input", markAsUnsaved);
-        elements.editor.addEventListener("beforeinput", () => {
+        elements.editor.addEventListener("beforeinput", (event) => {
+            if (isViewerMode) {
+                event.preventDefault();
+                return;
+            }
             if (!historyDebounceTimer) recordHistory();
             window.clearTimeout(historyDebounceTimer);
             historyDebounceTimer = window.setTimeout(() => {
@@ -366,6 +400,7 @@ export function createEditorController({
                     pendingPasteMode = "rich";
                 }, 1000);
             }
+            if (isViewerMode) return;
             if (!isEditorTarget && document.activeElement !== elements.htmlEditor) return;
             if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z") {
                 event.preventDefault();
@@ -381,9 +416,11 @@ export function createEditorController({
     return {
         bindEvents,
         isHtmlModeActive,
+        isViewerModeActive,
         renderSymbols,
         resetHistory,
         setHtmlMode,
+        setViewerMode,
         syncFromHtmlMode,
         updateCount,
         updateGoalProgress,

@@ -24,6 +24,7 @@ export const elements = {
     ignoreEllipsis: $("ignoreEllipsis"),
     btnRunLineBreak: $("btnRunLineBreak"),
     btnMemo: $("btnMemo"),
+    btnViewerMode: $("btnViewerMode"),
     btnHtmlMode: $("btnHtmlMode"),
     btnExportTxt: $("btnExportTxt"),
     btnExportDocx: $("btnExportDocx"),
