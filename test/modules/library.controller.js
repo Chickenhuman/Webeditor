@@ -5,6 +5,7 @@ import {
     migrateLegacyPasswordLock,
     verifyNovelPassword,
 } from "./password.js";
+import { isMarkdownFile, markdownToHtml } from "./markdown.js";
 import { sanitizeHtml, toSafeText } from "./sanitize.js";
 
 export function createLibraryController({
@@ -304,12 +305,17 @@ export function createLibraryController({
         if (!file) return;
         const reader = new FileReader();
         reader.onload = () => {
-            const content = sanitizeHtml(String(reader.result).replace(/\n/g, "<br>"));
+            const content = isMarkdownFile(file)
+                ? markdownToHtml(reader.result)
+                : sanitizeHtml(String(reader.result).replace(/\n/g, "<br>"));
             const novel = getCurrentNovel();
-            if (!novel) return;
+            if (!novel) {
+                event.target.value = "";
+                return;
+            }
             novel.chapters.push({
                 id: createId("chapter"),
-                title: toSafeText(file.name.replace(/\.(txt|docx)$/i, "")),
+                title: toSafeText(file.name.replace(/\.(txt|docx|md|markdown)$/i, "")),
                 content,
             });
             persistLocalState();

@@ -397,6 +397,168 @@ function sanitizeHtmlContent(html) {
     return sanitizePastedHtml(html);
 }
 
+const MARKDOWN_FILE_PATTERN = /\.(md|markdown)$/i;
+const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g;
+const MARKDOWN_CODE_SPAN_PATTERN = /`([^`]+)`/g;
+
+function isMarkdownFile(file) {
+    return MARKDOWN_FILE_PATTERN.test(file?.name || '') || file?.type === 'text/markdown';
+}
+
+function markdownToHtml(markdown) {
+    const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
+    const blocks = [];
+    let paragraph = [];
+    let blockquote = [];
+    let list = null;
+    let codeFence = null;
+
+    const flushParagraph = () => {
+        if (!paragraph.length) return;
+        blocks.push(`<p>${paragraph.map(renderMarkdownInline).join('<br>')}</p>`);
+        paragraph = [];
+    };
+
+    const flushBlockquote = () => {
+        if (!blockquote.length) return;
+        blocks.push(`<blockquote><p>${blockquote.map(renderMarkdownInline).join('<br>')}</p></blockquote>`);
+        blockquote = [];
+    };
+
+    const flushList = () => {
+        if (!list) return;
+        const items = list.items.map((item) => `<li>${renderMarkdownInline(item)}</li>`).join('');
+        blocks.push(`<${list.type}>${items}</${list.type}>`);
+        list = null;
+    };
+
+    const flushOpenBlocks = () => {
+        flushParagraph();
+        flushBlockquote();
+        flushList();
+    };
+
+    for (const line of lines) {
+        const fenceMatch = line.match(/^\s*```/);
+        if (codeFence) {
+            if (fenceMatch) {
+                blocks.push(`<pre><code>${escapeHtml(codeFence.join('\n'))}</code></pre>`);
+                codeFence = null;
+            } else {
+                codeFence.push(line);
+            }
+            continue;
+        }
+
+        if (fenceMatch) {
+            flushOpenBlocks();
+            codeFence = [];
+            continue;
+        }
+
+        if (!line.trim()) {
+            flushOpenBlocks();
+            continue;
+        }
+
+        const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch) {
+            flushOpenBlocks();
+            const level = headingMatch[1].length;
+            blocks.push(`<h${level}>${renderMarkdownInline(headingMatch[2].trim())}</h${level}>`);
+            continue;
+        }
+
+        if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+            flushOpenBlocks();
+            blocks.push('<hr>');
+            continue;
+        }
+
+        const quoteMatch = line.match(/^\s*>\s?(.*)$/);
+        if (quoteMatch) {
+            flushParagraph();
+            flushList();
+            blockquote.push(quoteMatch[1]);
+            continue;
+        }
+
+        const unorderedMatch = line.match(/^\s*[-*+]\s+(.+)$/);
+        const orderedMatch = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        if (unorderedMatch || orderedMatch) {
+            flushParagraph();
+            flushBlockquote();
+            const type = unorderedMatch ? 'ul' : 'ol';
+            if (list?.type !== type) flushList();
+            if (!list) list = { type, items: [] };
+            list.items.push((unorderedMatch || orderedMatch)[1]);
+            continue;
+        }
+
+        flushBlockquote();
+        flushList();
+        paragraph.push(line);
+    }
+
+    if (codeFence) blocks.push(`<pre><code>${escapeHtml(codeFence.join('\n'))}</code></pre>`);
+    flushOpenBlocks();
+    return sanitizeHtmlContent(blocks.join(''));
+}
+
+function renderMarkdownInline(text) {
+    const parts = [];
+    let index = 0;
+
+    String(text || '').replace(MARKDOWN_CODE_SPAN_PATTERN, (match, code, offset) => {
+        appendMarkdownTextWithLinks(parts, text.slice(index, offset));
+        parts.push(`<code>${escapeHtml(code)}</code>`);
+        index = offset + match.length;
+        return match;
+    });
+    appendMarkdownTextWithLinks(parts, text.slice(index));
+
+    return parts.join('');
+}
+
+function appendMarkdownTextWithLinks(parts, text) {
+    let index = 0;
+    String(text || '').replace(MARKDOWN_LINK_PATTERN, (match, label, href, title, offset) => {
+        parts.push(renderMarkdownFormattedText(text.slice(index, offset)));
+        const safeHref = sanitizeMarkdownUrl(href);
+        if (safeHref) {
+            const safeTitle = title ? ` title="${escapeHtml(title)}"` : '';
+            parts.push(`<a href="${escapeHtml(safeHref)}"${safeTitle}>${renderMarkdownFormattedText(label)}</a>`);
+        } else {
+            parts.push(renderMarkdownFormattedText(label));
+        }
+        index = offset + match.length;
+        return match;
+    });
+    parts.push(renderMarkdownFormattedText(text.slice(index)));
+}
+
+function renderMarkdownFormattedText(text) {
+    return escapeHtml(text)
+        .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+        .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
+        .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+        .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+}
+
+function sanitizeMarkdownUrl(value) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('#')) return trimmed;
+
+    try {
+        const parsed = new URL(trimmed, window.location.href);
+        return ['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol) ? trimmed : '';
+    } catch (error) {
+        return '';
+    }
+}
+
 function sanitizeLastActive(value) {
     if (!value || typeof value !== 'object') return null;
     return {
@@ -1528,6 +1690,7 @@ function handleFileSelect(event){
     const file = event.target.files[0]; if (!file) return;
     const reader = new FileReader();
     if (file.name.endsWith('.txt')) { reader.onload = function(e) { createNewChapter(file.name, escapeHtml(e.target.result).replace(/\n/g, '<br>')); }; reader.readAsText(file); }
+    else if (isMarkdownFile(file)) { reader.onload = function(e) { createNewChapter(file.name, markdownToHtml(e.target.result)); }; reader.readAsText(file); }
     else if (file.name.endsWith('.docx')) { reader.onload = function(e) { mammoth.convertToHtml({ arrayBuffer: e.target.result }).then(function(result) { createNewChapter(file.name, result.value); }).catch(function(err) { alert("docx 오류"); }); }; reader.readAsArrayBuffer(file); }
     event.target.value = '';
 }
@@ -1537,7 +1700,7 @@ async function createNewChapter(name, content) {
     if(!novel) return;
     const newChapter = {
         id: Date.now(),
-        title: toSafeText(name).replace(/\.(txt|docx)$/i, '') || '무제',
+        title: toSafeText(name).replace(/\.(txt|docx|md|markdown)$/i, '') || '무제',
         content: sanitizeHtmlContent(content),
     };
     novel.chapters.push(newChapter);

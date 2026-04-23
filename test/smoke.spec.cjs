@@ -640,6 +640,28 @@ test("launcher opens isolated test mode without touching production storage", as
     await expect(page.locator("#titleInput")).toHaveValue("imported-chapter");
     await expect(page.locator("#mainEditor")).toContainText("가져온 챕터 본문");
 
+    await expect(page.locator("#fileInput")).toHaveAttribute("accept", /\.md/);
+    await page.setInputFiles("#fileInput", {
+        name: "markdown-chapter.md",
+        mimeType: "text/markdown",
+        buffer: Buffer.from([
+            "# 마크다운 챕터",
+            "",
+            "본문 **강조**와 `코드`",
+            "",
+            "- 첫 항목",
+            "- 둘째 항목",
+            "",
+            '<img src=x onerror="window.__mdImportXss = 1">',
+        ].join("\n")),
+    });
+    await expect(page.locator("#titleInput")).toHaveValue("markdown-chapter");
+    await expect(page.locator("#mainEditor h1")).toContainText("마크다운 챕터");
+    await expect(page.locator("#mainEditor strong")).toContainText("강조");
+    await expect(page.locator("#mainEditor code")).toContainText("코드");
+    await expect(page.locator("#mainEditor li")).toHaveCount(2);
+    expect(await page.evaluate(() => window.__mdImportXss)).toBeUndefined();
+
     await page.locator("#btnCharacters").click();
     await page.locator("#btnAddCharacter").click();
     await page.locator("#charName").fill("테스트 캐릭터");
@@ -892,6 +914,38 @@ test("production index hardens stored data and safety restores", async ({ page }
     await page.locator("#safetyBackupList").getByText("복원").first().click();
     await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(2);
     await expect(page.locator("#titleInput")).toHaveValue(/운영 1화/);
+
+    await expect(page.locator("#fileInput")).toHaveAttribute("accept", /\.md/);
+    await page.setInputFiles("#fileInput", {
+        name: "production-markdown.markdown",
+        mimeType: "text/markdown",
+        buffer: Buffer.from([
+            "## 운영 마크다운",
+            "",
+            "본문 **강조**와 [링크](https://example.com)",
+            "",
+            "1. 첫 항목",
+            "2. 둘째 항목",
+            "",
+            '<img src=x onerror="window.__productionMdXss = 1">',
+        ].join("\n")),
+    });
+    await expect(page.locator("#titleInput")).toHaveValue("production-markdown");
+    await expect(page.locator("#mainEditor h2")).toContainText("운영 마크다운");
+    await expect(page.locator("#mainEditor strong")).toContainText("강조");
+    await expect(page.locator("#mainEditor li")).toHaveCount(2);
+    const markdownImportState = await page.evaluate(() => {
+        const library = JSON.parse(localStorage.getItem("novelLibrary"));
+        const imported = library[0].chapters.find((chapter) => chapter.title === "production-markdown");
+        return {
+            content: imported?.content || "",
+            xss: window.__productionMdXss,
+        };
+    });
+    expect(markdownImportState.content).toContain("<h2>운영 마크다운</h2>");
+    expect(markdownImportState.content).toContain("<strong>강조</strong>");
+    expect(markdownImportState.content).not.toContain("<img");
+    expect(markdownImportState.xss).toBeUndefined();
 
     expect(browserErrors.filter((message) => !message.includes("복원 실패 Error: Invalid library"))).toEqual([]);
 });
