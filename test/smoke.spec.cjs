@@ -528,6 +528,45 @@ test("launcher opens isolated test mode without touching production storage", as
     await expect(page.locator("#mainEditor")).toHaveAttribute("contenteditable", "true");
     await expect(page.locator("#titleInput")).toBeEnabled();
 
+    await page.locator("#mainEditor").fill([
+        "# 뷰어 마크다운",
+        "",
+        "본문 **강조**와 [링크](https://example.com)",
+        "",
+        "- 첫 항목",
+        "- 둘째 항목",
+        "",
+        '<img src=x onerror="window.__viewerMdXss = 1">',
+    ].join("\n"));
+    await page.locator("#btnViewerMode").click();
+    await expect(page.locator("#mainEditor h1")).toContainText("뷰어 마크다운");
+    await expect(page.locator("#mainEditor strong")).toContainText("강조");
+    await expect(page.locator("#mainEditor a")).toHaveAttribute("href", "https://example.com");
+    await expect(page.locator("#mainEditor li")).toHaveCount(2);
+    await expect(page.locator("#mainEditor")).not.toContainText("# 뷰어 마크다운");
+    expect(await page.evaluate(() => window.__viewerMdXss)).toBeUndefined();
+
+    await page.getByTestId("save-button").click();
+    const viewerMarkdownSaveState = await page.evaluate(() => {
+        const lastActive = JSON.parse(localStorage.getItem("webeditor:test:last-active"));
+        const library = JSON.parse(localStorage.getItem("webeditor:test:library"));
+        const novel = library.find((item) => item.id === lastActive.novelId);
+        const chapter = novel.chapters.find((item) => item.id === lastActive.chapterId);
+        return {
+            content: chapter.content,
+            editorHtml: document.getElementById("mainEditor").innerHTML,
+        };
+    });
+    expect(viewerMarkdownSaveState.editorHtml).toContain("<h1>뷰어 마크다운</h1>");
+    expect(viewerMarkdownSaveState.content).toContain("# 뷰어 마크다운");
+    expect(viewerMarkdownSaveState.content).toContain("**강조**");
+    expect(viewerMarkdownSaveState.content).not.toContain("<h1>");
+    expect(viewerMarkdownSaveState.content).not.toContain("<img");
+
+    await page.locator("#btnViewerMode").click();
+    await expect(page.locator("#mainEditor")).toContainText("# 뷰어 마크다운");
+    await expect(page.locator("#mainEditor")).not.toContainText("viewer blocked");
+
     await page.locator("#mainEditor").fill("");
     await page.locator("#mainEditor").focus();
     await page.keyboard.type("undo check");
@@ -914,6 +953,43 @@ test("production index hardens stored data and safety restores", async ({ page }
     await expect(page.locator("#mainEditor")).toHaveAttribute("contenteditable", "true");
     await expect(page.locator("#titleInput")).toBeEnabled();
 
+    await page.locator("#mainEditor").fill([
+        "## 운영 뷰어 마크다운",
+        "",
+        "본문 **강조**와 [링크](https://example.com)",
+        "",
+        "1. 첫 항목",
+        "2. 둘째 항목",
+        "",
+        '<img src=x onerror="window.__productionViewerMdXss = 1">',
+    ].join("\n"));
+    await page.locator("#viewerModeBtn").click();
+    await expect(page.locator("#mainEditor h2")).toContainText("운영 뷰어 마크다운");
+    await expect(page.locator("#mainEditor strong")).toContainText("강조");
+    await expect(page.locator("#mainEditor a")).toHaveAttribute("href", "https://example.com");
+    await expect(page.locator("#mainEditor li")).toHaveCount(2);
+    expect(await page.evaluate(() => window.__productionViewerMdXss)).toBeUndefined();
+
+    await page.locator("button[title='즉시 저장']").click();
+    const productionViewerMarkdownSaveState = await page.evaluate(() => {
+        const lastActive = JSON.parse(localStorage.getItem("editorLastActive"));
+        const library = JSON.parse(localStorage.getItem("novelLibrary"));
+        const novel = library.find((item) => item.id === lastActive.novelId);
+        const chapter = novel.chapters.find((item) => item.id === lastActive.chapterId);
+        return {
+            content: chapter.content,
+            editorHtml: document.getElementById("mainEditor").innerHTML,
+        };
+    });
+    expect(productionViewerMarkdownSaveState.editorHtml).toContain("<h2>운영 뷰어 마크다운</h2>");
+    expect(productionViewerMarkdownSaveState.content).toContain("## 운영 뷰어 마크다운");
+    expect(productionViewerMarkdownSaveState.content).toContain("**강조**");
+    expect(productionViewerMarkdownSaveState.content).not.toContain("<h2>");
+    expect(productionViewerMarkdownSaveState.content).not.toContain("<img");
+
+    await page.locator("#viewerModeBtn").click();
+    await expect(page.locator("#mainEditor")).toContainText("## 운영 뷰어 마크다운");
+
     await withDialogResponses(page, ["", ""], async () => {
         await page.setInputFiles("#backupInput", {
             name: "invalid-production-backup.json",
@@ -930,7 +1006,7 @@ test("production index hardens stored data and safety restores", async ({ page }
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#sidebarList .chapter-item.active").hover();
-    await page.locator("#sidebarList .chapter-item.active .delete-btn").click();
+    await page.locator("#sidebarList .chapter-item.active .delete-btn").click({ force: true });
     await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(1);
     const deleteSafetyBackup = await page.evaluate(() => {
         const backups = JSON.parse(localStorage.getItem("editorSafetyBackups"));

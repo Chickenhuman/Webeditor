@@ -249,6 +249,7 @@ export function createLibraryController({
         if (!chapter) return;
 
         if (editorController.isHtmlModeActive()) editorController.setHtmlMode(false);
+        if (editorController.isViewerModeActive()) editorController.setViewerMode(false);
         currentChapterId = id;
         const safeContent = sanitizeHtml(chapter.content);
         chapter.content = safeContent;

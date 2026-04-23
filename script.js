@@ -59,6 +59,7 @@ let hasUnsavedChanges = false;
 let isHtmlMode = false;
 let isViewerMode = false;
 let pendingPasteMode = 'rich';
+let viewerMarkdownSourceHtml = null;
 let viewMode = 'library';
 let currentUser = null;
 let isLoginMode = true; 
@@ -408,6 +409,25 @@ function isMarkdownFile(file) {
     return MARKDOWN_FILE_PATTERN.test(file?.name || '') || file?.type === 'text/markdown';
 }
 
+function looksLikeMarkdownSource(markdown) {
+    const source = String(markdown || '').replace(/\r\n?/g, '\n');
+    if (!source.trim()) return false;
+
+    return [
+        /^\s{0,3}#{1,6}\s+\S/m,
+        /^\s{0,3}>\s+\S/m,
+        /^\s{0,3}[-*+]\s+\S/m,
+        /^\s{0,3}\d+[.)]\s+\S/m,
+        /^\s{0,3}```/m,
+        /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/m,
+        /\|.+\|\n\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?/,
+        /(?:\*\*|__)[^\n]+(?:\*\*|__)/,
+        /~~[^~\n]+~~/,
+        /`[^`\n]+`/,
+        /\[[^\]\n]+\]\([^)]+\)/,
+    ].some((pattern) => pattern.test(source));
+}
+
 function markdownToHtml(markdown) {
     const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
     const blocks = [];
@@ -651,6 +671,75 @@ function sanitizeMarkdownUrl(value) {
     }
 }
 
+function hasOnlyTextCompatibleMarkup() {
+    const textCompatibleTags = new Set([
+        'B',
+        'BR',
+        'DIV',
+        'EM',
+        'FONT',
+        'I',
+        'P',
+        'S',
+        'SPAN',
+        'STRIKE',
+        'STRONG',
+        'U',
+    ]);
+
+    return [...editor.querySelectorAll('*')].every((element) => (
+        textCompatibleTags.has(element.tagName)
+    ));
+}
+
+function getEditorPlainText() {
+    if (typeof editor.innerText === 'string') {
+        return editor.innerText.replace(/\u00a0/g, ' ');
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = editor.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+    return template.content.textContent.replace(/\u00a0/g, ' ');
+}
+
+function renderViewerMarkdownPreview() {
+    if (!hasOnlyTextCompatibleMarkup()) return;
+
+    const sourceText = getEditorPlainText();
+    if (!looksLikeMarkdownSource(sourceText)) return;
+
+    viewerMarkdownSourceHtml = sanitizeHtmlContent(editor.innerHTML);
+    editor.innerHTML = markdownToHtml(sourceText);
+    updateCount();
+}
+
+function restoreViewerMarkdownPreview() {
+    if (viewerMarkdownSourceHtml === null) return;
+
+    editor.innerHTML = viewerMarkdownSourceHtml;
+    htmlEditor.value = viewerMarkdownSourceHtml;
+    viewerMarkdownSourceHtml = null;
+    updateCount();
+}
+
+function getPersistableEditorHtml() {
+    if (viewerMarkdownSourceHtml !== null) return sanitizeHtmlContent(viewerMarkdownSourceHtml);
+    if (isHtmlMode) return sanitizeHtmlContent(htmlEditor.value);
+    return sanitizeHtmlContent(editor.innerHTML);
+}
+
+function applyPersistedEditorHtml(html) {
+    const safeHtml = sanitizeHtmlContent(html);
+    if (viewerMarkdownSourceHtml !== null) {
+        viewerMarkdownSourceHtml = safeHtml;
+    } else {
+        editor.innerHTML = safeHtml;
+    }
+    htmlEditor.value = safeHtml;
+    updateCount();
+    return safeHtml;
+}
+
 function sanitizeLastActive(value) {
     if (!value || typeof value !== 'object') return null;
     return {
@@ -809,10 +898,10 @@ function syncActiveEditorToModel() {
 
     const chapter = novel.chapters.find((item) => item.id === currentChapterId);
     if (chapter) {
+        const editorHtml = getPersistableEditorHtml();
         chapter.title = toSafeText(titleInput.value.trim() || '무제');
-        chapter.content = sanitizeHtmlContent(editor.innerHTML);
-        editor.innerHTML = chapter.content;
-        htmlEditor.value = chapter.content;
+        chapter.content = sanitizeHtmlContent(editorHtml);
+        applyPersistedEditorHtml(chapter.content);
     }
     novel.memo = toSafeText(memoTextarea.value);
 }
@@ -1406,6 +1495,7 @@ function loadChapter(id) {
     if (!n) return;
     const c = n.chapters.find(ch => ch.id === id);
     if (c) {
+        if (isViewerMode) toggleViewerMode();
         currentChapterId = id;
         c.title = toSafeText(c.title || '무제');
         c.content = sanitizeHtmlContent(c.content || '');
@@ -1611,8 +1701,11 @@ memoTextarea.addEventListener('input', () => markAsUnsaved());
 function insertSymbol(o, c) { if(isHtmlMode||isViewerMode)return; recordHistory(); document.execCommand('insertText',false,o+c); if(c){const s=window.getSelection(),r=s.getRangeAt(0);r.setStart(r.startContainer,r.startOffset-1);r.setEnd(r.startContainer,r.startOffset-1);s.removeAllRanges();s.addRange(r);} editor.focus(); markAsUnsaved(); }
 function toggleMemoPanel() { memoPanel.classList.toggle('open'); }
 function toggleViewerMode() {
-    isViewerMode = !isViewerMode;
+    const nextViewerMode = !isViewerMode;
+    if (!nextViewerMode) restoreViewerMarkdownPreview();
+    isViewerMode = nextViewerMode;
     if (isViewerMode && isHtmlMode) toggleHtmlMode();
+    if (isViewerMode) renderViewerMarkdownPreview();
 
     editor.setAttribute('contenteditable', isViewerMode ? 'false' : 'true');
     editor.classList.toggle('viewer-mode', isViewerMode);

@@ -8,6 +8,25 @@ export function isMarkdownFile(file) {
     return MARKDOWN_FILE_PATTERN.test(file?.name || "") || file?.type === "text/markdown";
 }
 
+export function looksLikeMarkdownSource(markdown) {
+    const source = String(markdown || "").replace(/\r\n?/g, "\n");
+    if (!source.trim()) return false;
+
+    return [
+        /^\s{0,3}#{1,6}\s+\S/m,
+        /^\s{0,3}>\s+\S/m,
+        /^\s{0,3}[-*+]\s+\S/m,
+        /^\s{0,3}\d+[.)]\s+\S/m,
+        /^\s{0,3}```/m,
+        /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/m,
+        /\|.+\|\n\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?/,
+        /(?:\*\*|__)[^\n]+(?:\*\*|__)/,
+        /~~[^~\n]+~~/,
+        /`[^`\n]+`/,
+        /\[[^\]\n]+\]\([^)]+\)/,
+    ].some((pattern) => pattern.test(source));
+}
+
 export function markdownToHtml(markdown) {
     const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
     const blocks = [];

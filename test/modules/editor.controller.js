@@ -1,4 +1,5 @@
 import { APP_CONFIG, DEFAULT_SETTINGS, MESSAGES } from "./config.js";
+import { looksLikeMarkdownSource, markdownToHtml } from "./markdown.js";
 import { sanitizeClipboardHtml, sanitizeHtml } from "./sanitize.js";
 
 export function createEditorController({
@@ -15,6 +16,7 @@ export function createEditorController({
     let undoStack = [];
     let redoStack = [];
     let pendingPasteMode = "rich";
+    let viewerMarkdownSourceHtml = null;
 
     function isHtmlModeActive() {
         return isHtmlMode;
@@ -92,6 +94,75 @@ export function createEditorController({
         elements.editor.innerHTML = safeHtml;
     }
 
+    function hasOnlyTextCompatibleMarkup() {
+        const textCompatibleTags = new Set([
+            "B",
+            "BR",
+            "DIV",
+            "EM",
+            "FONT",
+            "I",
+            "P",
+            "S",
+            "SPAN",
+            "STRIKE",
+            "STRONG",
+            "U",
+        ]);
+
+        return [...elements.editor.querySelectorAll("*")].every((element) => (
+            textCompatibleTags.has(element.tagName)
+        ));
+    }
+
+    function getEditorPlainText() {
+        if (typeof elements.editor.innerText === "string") {
+            return elements.editor.innerText.replace(/\u00a0/g, " ");
+        }
+
+        const template = document.createElement("template");
+        template.innerHTML = elements.editor.innerHTML.replace(/<br\s*\/?>/gi, "\n");
+        return template.content.textContent.replace(/\u00a0/g, " ");
+    }
+
+    function renderViewerMarkdownPreview() {
+        if (!hasOnlyTextCompatibleMarkup()) return;
+
+        const sourceText = getEditorPlainText();
+        if (!looksLikeMarkdownSource(sourceText)) return;
+
+        viewerMarkdownSourceHtml = sanitizeHtml(elements.editor.innerHTML);
+        elements.editor.innerHTML = markdownToHtml(sourceText);
+        updateCount();
+    }
+
+    function restoreViewerMarkdownPreview() {
+        if (viewerMarkdownSourceHtml === null) return;
+
+        elements.editor.innerHTML = viewerMarkdownSourceHtml;
+        elements.htmlEditor.value = viewerMarkdownSourceHtml;
+        viewerMarkdownSourceHtml = null;
+        updateCount();
+    }
+
+    function getPersistableHtml() {
+        if (viewerMarkdownSourceHtml !== null) return sanitizeHtml(viewerMarkdownSourceHtml);
+        if (isHtmlMode) return sanitizeHtml(elements.htmlEditor.value);
+        return sanitizeHtml(elements.editor.innerHTML);
+    }
+
+    function applyPersistedHtml(html) {
+        const safeHtml = sanitizeHtml(html);
+        if (viewerMarkdownSourceHtml !== null) {
+            viewerMarkdownSourceHtml = safeHtml;
+        } else {
+            elements.editor.innerHTML = safeHtml;
+        }
+        elements.htmlEditor.value = safeHtml;
+        updateCount();
+        return safeHtml;
+    }
+
     function setHtmlMode(enabled) {
         if (enabled && isViewerMode) setViewerMode(false);
         isHtmlMode = enabled;
@@ -113,8 +184,10 @@ export function createEditorController({
     }
 
     function setViewerMode(enabled) {
+        if (!enabled) restoreViewerMarkdownPreview();
         isViewerMode = Boolean(enabled);
         if (isViewerMode && isHtmlMode) setHtmlMode(false);
+        if (isViewerMode) renderViewerMarkdownPreview();
 
         elements.editor.setAttribute("contenteditable", isViewerMode ? "false" : "true");
         elements.editor.classList.toggle("viewer-mode", isViewerMode);
@@ -419,6 +492,8 @@ export function createEditorController({
         isViewerModeActive,
         renderSymbols,
         resetHistory,
+        applyPersistedHtml,
+        getPersistableHtml,
         setHtmlMode,
         setViewerMode,
         syncFromHtmlMode,

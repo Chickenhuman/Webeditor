@@ -111,10 +111,10 @@ function createSafetyBackup(reason) {
 
     if (novel && chapter) {
         editorController.syncFromHtmlMode();
+        const editorHtml = editorController.getPersistableHtml();
         chapter.title = toSafeText(elements.titleInput.value.trim() || "무제");
-        chapter.content = sanitizeHtml(elements.editor.innerHTML);
-        elements.editor.innerHTML = chapter.content;
-        elements.htmlEditor.value = chapter.content;
+        chapter.content = sanitizeHtml(editorHtml);
+        editorController.applyPersistedHtml(chapter.content);
         novel.memo = toSafeText(elements.memoTextarea.value);
     }
 
@@ -307,10 +307,10 @@ async function performSave(options = {}) {
     }
 
     editorController.syncFromHtmlMode();
+    const editorHtml = editorController.getPersistableHtml();
     chapter.title = toSafeText(elements.titleInput.value.trim() || "무제");
-    chapter.content = sanitizeHtml(elements.editor.innerHTML);
-    elements.editor.innerHTML = chapter.content;
-    elements.htmlEditor.value = chapter.content;
+    chapter.content = sanitizeHtml(editorHtml);
+    editorController.applyPersistedHtml(chapter.content);
     novel.memo = toSafeText(elements.memoTextarea.value);
     persistLocalState();
     if (!syncCloud) {
