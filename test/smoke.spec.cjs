@@ -113,6 +113,94 @@ async function withDialogResponses(page, responses, action) {
     }
 }
 
+async function installProductionDependencyMocks(page) {
+    const fulfillScript = (route, body) => route.fulfill({
+        status: 200,
+        contentType: "text/javascript;charset=utf-8",
+        body,
+    });
+
+    await page.route("https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js", (route) => fulfillScript(route, `
+        export function initializeApp(config) {
+            window.__firebaseConfig = config;
+            return { config };
+        }
+    `));
+
+    await page.route("https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js", (route) => fulfillScript(route, `
+        export function getAnalytics() {
+            return {};
+        }
+    `));
+
+    await page.route("https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js", (route) => fulfillScript(route, `
+        export function getAuth() {
+            return {};
+        }
+        export async function createUserWithEmailAndPassword() {
+            return { user: { email: "mock@private.user", displayName: "Mock" } };
+        }
+        export async function signInWithEmailAndPassword() {
+            return { user: { email: "mock@private.user", displayName: "Mock" } };
+        }
+        export function onAuthStateChanged(auth, callback) {
+            queueMicrotask(() => callback(null));
+            return () => {};
+        }
+        export async function signOut() {}
+        export async function updateProfile(user, profile) {
+            Object.assign(user, profile);
+        }
+    `));
+
+    await page.route("https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js", (route) => fulfillScript(route, `
+        export function getFirestore() {
+            return {};
+        }
+        export function doc(...path) {
+            return { path };
+        }
+        export async function getDoc() {
+            return { exists: () => false, data: () => ({}) };
+        }
+        export async function setDoc() {}
+        export function collection(...path) {
+            return { path };
+        }
+        export async function addDoc() {
+            return { id: "mock-snapshot" };
+        }
+        export async function getDocs() {
+            return { empty: true, forEach: () => {} };
+        }
+        export function query(collectionRef) {
+            return collectionRef;
+        }
+        export function orderBy() {
+            return {};
+        }
+        export function limit() {
+            return {};
+        }
+        export async function deleteDoc() {}
+    `));
+
+    await page.route("https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js", (route) => fulfillScript(route, `
+        window.mammoth = { convertToHtml: async () => ({ value: "" }) };
+    `));
+
+    await page.route("https://unpkg.com/html-docx-js/dist/html-docx.js", (route) => fulfillScript(route, `
+        window.htmlDocx = { asBlob: (html) => new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }) };
+    `));
+
+    await page.route("https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js", (route) => fulfillScript(route, `
+        window.LZString = {
+            compressToUTF16: (value) => String(value),
+            decompressFromUTF16: (value) => String(value),
+        };
+    `));
+}
+
 test("launcher opens isolated test mode without touching production storage", async ({ page }) => {
     test.setTimeout(60000);
 
@@ -652,4 +740,158 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(storageState.testSettings).toContain("1200");
     expect(storageState.testCharacters).toBe("[]");
     expect(browserErrors).toEqual([]);
+});
+
+test("production index hardens stored data and safety restores", async ({ page }) => {
+    test.setTimeout(60000);
+
+    const browserErrors = [];
+    page.on("console", (message) => {
+        if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => browserErrors.push(error.message));
+
+    await installProductionDependencyMocks(page);
+    await page.addInitScript(() => {
+        const mainNovelId = 91001;
+        const firstChapterId = 92001;
+        const secondChapterId = 92002;
+        localStorage.clear();
+        localStorage.setItem("novelLibrary", JSON.stringify([
+            {
+                id: mainNovelId,
+                title: '<img src=x onerror="window.__titleXss = 1">운영 회귀 소설',
+                memo: '<b onclick="window.__memoXss = 1">메모</b>',
+                chapters: [
+                    {
+                        id: firstChapterId,
+                        title: '<script>window.__chapterTitleXss = 1</script>운영 1화',
+                        content: '<span style="color: rgb(220, 38, 38); font-size: 20px; background-color: yellow" onclick="window.__xss = 1">저장소 본문</span><script>window.__xss = 1</script>',
+                    },
+                    {
+                        id: secondChapterId,
+                        title: "운영 2화",
+                        content: "삭제 전 보존 본문",
+                    },
+                ],
+            },
+            {
+                id: 91002,
+                title: "레거시 잠금 소설",
+                password: "2468",
+                chapters: [{ id: 92003, title: "잠금 1화", content: "" }],
+            },
+            {
+                id: 91003,
+                title: "혼합 잠금 소설",
+                password: "plain-should-go-away",
+                passwordLock: { version: 1, algorithm: "SHA-256", salt: "salted", hash: "already-hashed" },
+                chapters: [{ id: 92004, title: "혼합 1화", content: "" }],
+            },
+        ]));
+        localStorage.setItem("editorSettings", JSON.stringify({ autoSaveMin: 2, targetCount: 2400 }));
+        localStorage.setItem("characterList", JSON.stringify([
+            { id: 93001, name: '<img src=x onerror="window.__charXss = 1">인물', role: "<b>주연</b>" },
+        ]));
+        localStorage.setItem("editorLastActive", JSON.stringify({ novelId: mainNovelId, chapterId: firstChapterId }));
+    });
+
+    await page.goto(`${baseURL}/index.html`);
+    await expect(page.locator("#btnGuest")).toBeVisible();
+    await page.locator("#btnGuest").click();
+    await expect(page.locator("#sidebarTitle")).toContainText("운영 회귀 소설");
+    await expect(page.locator("#titleInput")).toHaveValue(/운영 1화/);
+    await expect(page.locator("#mainEditor")).toContainText("저장소 본문");
+
+    const normalizedState = await page.evaluate(() => {
+        const library = JSON.parse(localStorage.getItem("novelLibrary"));
+        return {
+            mainHtml: library[0].chapters[0].content,
+            legacyLock: library.find((novel) => novel.id === 91002),
+            mixedLock: library.find((novel) => novel.id === 91003),
+            characterList: localStorage.getItem("characterList"),
+            xss: window.__xss,
+            titleXss: window.__titleXss,
+            memoXss: window.__memoXss,
+            chapterTitleXss: window.__chapterTitleXss,
+            charXss: window.__charXss,
+        };
+    });
+
+    expect(normalizedState.mainHtml).toContain("color: rgb(220, 38, 38)");
+    expect(normalizedState.mainHtml).toContain("font-size: 20px");
+    expect(normalizedState.mainHtml).not.toContain("background");
+    expect(normalizedState.mainHtml).not.toContain("onclick");
+    expect(normalizedState.mainHtml).not.toContain("script");
+    expect(normalizedState.legacyLock.password).toBeUndefined();
+    expect(normalizedState.legacyLock.passwordLock.hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(normalizedState.legacyLock.passwordLock.hash).not.toBe("2468");
+    expect(normalizedState.mixedLock.password).toBeUndefined();
+    expect(normalizedState.mixedLock.passwordLock.hash).toBe("already-hashed");
+    expect(normalizedState.characterList).toContain("<img");
+    expect(normalizedState.xss).toBeUndefined();
+    expect(normalizedState.titleXss).toBeUndefined();
+    expect(normalizedState.memoXss).toBeUndefined();
+    expect(normalizedState.chapterTitleXss).toBeUndefined();
+    expect(normalizedState.charXss).toBeUndefined();
+
+    await page.locator("#mainEditor").fill("");
+    await page.locator("#mainEditor").focus();
+    await page.locator("#mainEditor").evaluate((node) => {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const clipboardData = new DataTransfer();
+        clipboardData.setData("text/html", '<span style="color: rgb(37, 99, 235); font-size: 24px; background-color: yellow" onclick="window.__pasteXss = 1">운영 붙여넣기</span>');
+        clipboardData.setData("text/plain", "운영 붙여넣기");
+        node.dispatchEvent(new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData,
+        }));
+    });
+    const pastedProductionHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(pastedProductionHtml).toContain("color: rgb(37, 99, 235)");
+    expect(pastedProductionHtml).toContain("font-size: 24px");
+    expect(pastedProductionHtml).not.toContain("background");
+    expect(pastedProductionHtml).not.toContain("onclick");
+    expect(await page.evaluate(() => window.__pasteXss)).toBeUndefined();
+
+    await withDialogResponses(page, ["", ""], async () => {
+        await page.setInputFiles("#backupInput", {
+            name: "invalid-production-backup.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({ library: "not-an-array" })),
+        });
+    });
+    const afterInvalidRestore = await page.evaluate(() => ({
+        libraryLength: JSON.parse(localStorage.getItem("novelLibrary")).length,
+        safetyBackups: JSON.parse(localStorage.getItem("editorSafetyBackups") || "[]").length,
+    }));
+    expect(afterInvalidRestore.libraryLength).toBe(3);
+    expect(afterInvalidRestore.safetyBackups).toBe(0);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#sidebarList .chapter-item.active").hover();
+    await page.locator("#sidebarList .chapter-item.active .delete-btn").click();
+    await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(1);
+    const deleteSafetyBackup = await page.evaluate(() => {
+        const backups = JSON.parse(localStorage.getItem("editorSafetyBackups"));
+        return backups[0];
+    });
+    expect(deleteSafetyBackup.reason).toBe("delete-chapter");
+    expect(deleteSafetyBackup.data.library[0].chapters).toHaveLength(2);
+
+    await page.locator("button[title='삭제/복원 전 자동 안전 백업']").click();
+    await expect(page.locator("#safetyBackupList")).toContainText("챕터 삭제 전");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#safetyBackupList").getByText("복원").first().click();
+    await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(2);
+    await expect(page.locator("#titleInput")).toHaveValue(/운영 1화/);
+
+    expect(browserErrors.filter((message) => !message.includes("복원 실패 Error: Invalid library"))).toEqual([]);
 });
