@@ -88,6 +88,15 @@ export function saveSafetyBackup(reason, state) {
     return backup;
 }
 
+export function loadSafetyBackups() {
+    return loadJson(STORAGE_KEYS.safetyBackups, []);
+}
+
+export function deleteSafetyBackup(id) {
+    const backups = loadSafetyBackups();
+    saveJson(STORAGE_KEYS.safetyBackups, backups.filter((backup) => backup.id !== id));
+}
+
 export function resetTestData() {
     seedTestData(true);
     return loadTestState();

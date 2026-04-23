@@ -28,23 +28,27 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const DOMAIN = "@private.user";
+const SAFETY_BACKUP_KEY = 'editorSafetyBackups';
+const MAX_SAFETY_BACKUPS = 10;
+const PASSWORD_LOCK_VERSION = 1;
+const defaultSettings = {
+    darkMode: false,
+    autoSaveMin: 3,
+    targetCount: 5000,
+    goalType: 'space',
+    customSymbols: "「」, 『』, (), [], “”, ─, …, ★, ※"
+};
 
 // ============================================================
 // [2] 전역 변수
 // ============================================================
-let library = JSON.parse(localStorage.getItem('novelLibrary')) || [];
-let currentNovelId = null; 
+let library = readStoredJson('novelLibrary', []);
+let currentNovelId = null;
 let currentChapterId = null;
 
 /* ▼▼▼ 아래 코드를 여기에 붙여넣으세요 ▼▼▼ */
-const defaultSymbols = "「」, 『』, (), [], “”, ─, …, ★, ※"; 
-let settings = JSON.parse(localStorage.getItem('editorSettings')) || { 
-    darkMode: false, 
-    autoSaveMin: 3, 
-    targetCount: 5000, 
-    goalType: 'space',
-    customSymbols: defaultSymbols 
-};
+const defaultSymbols = defaultSettings.customSymbols;
+let settings = { ...defaultSettings, ...readStoredJson('editorSettings', {}) };
 /* ▲▲▲ 여기까지 ▲▲▲ */
 
 const MAX_HISTORY = 50;
@@ -58,7 +62,7 @@ let viewMode = 'library';
 let currentUser = null;
 let isLoginMode = true; 
 /* ▼▼▼ 전역 변수 영역에 추가 ▼▼▼ */
-let characterList = JSON.parse(localStorage.getItem('characterList')) || []; // 캐릭터 데이터
+let characterList = readStoredJson('characterList', []); // 캐릭터 데이터
 let selectedCharId = null; // 현재 선택된 캐릭터 ID
 
 // DOM Elements
@@ -359,6 +363,245 @@ function setPastedMatchingAttribute(node, name, value, pattern) {
     if (pattern.test(normalized)) node.setAttribute(name, normalized);
 }
 
+function readStoredJson(key, fallback) {
+    const raw = localStorage.getItem(key);
+    if (!raw) return cloneData(fallback);
+
+    try {
+        return JSON.parse(raw);
+    } catch (error) {
+        console.warn(`${key} JSON 파싱 실패`, error);
+        return cloneData(fallback);
+    }
+}
+
+function cloneData(value) {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+}
+
+function toSafeText(value) {
+    return String(value || '');
+}
+
+function escapeHtml(value) {
+    return toSafeText(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function sanitizeHtmlContent(html) {
+    return sanitizePastedHtml(html);
+}
+
+function sanitizeLastActive(value) {
+    if (!value || typeof value !== 'object') return null;
+    return {
+        novelId: value.novelId,
+        chapterId: value.chapterId,
+    };
+}
+
+function sanitizeSettings(value) {
+    const next = { ...defaultSettings, ...(value && typeof value === 'object' ? value : {}) };
+    next.darkMode = Boolean(next.darkMode);
+    next.autoSaveMin = Math.max(Number.parseInt(next.autoSaveMin, 10) || defaultSettings.autoSaveMin, 1);
+    next.targetCount = Math.max(Number.parseInt(next.targetCount, 10) || defaultSettings.targetCount, 1);
+    next.goalType = next.goalType === 'nospace' ? 'nospace' : 'space';
+    next.customSymbols = toSafeText(next.customSymbols || defaultSettings.customSymbols);
+    return next;
+}
+
+function sanitizePasswordLock(lock) {
+    if (!lock || typeof lock !== 'object') return undefined;
+    const hash = toSafeText(lock.hash).trim();
+    const salt = toSafeText(lock.salt).trim();
+    if (!hash || !salt) return undefined;
+
+    return {
+        version: Number(lock.version) || PASSWORD_LOCK_VERSION,
+        algorithm: toSafeText(lock.algorithm || 'SHA-256'),
+        salt,
+        hash,
+    };
+}
+
+function sanitizeLibrary(value) {
+    if (!Array.isArray(value)) return [];
+
+    return value.map((novel) => {
+        const safeNovel = {
+            ...novel,
+            id: novel?.id || Date.now(),
+            title: toSafeText(novel?.title || '무제'),
+            memo: toSafeText(novel?.memo),
+            chapters: Array.isArray(novel?.chapters)
+                ? novel.chapters.map((chapter) => ({
+                    ...chapter,
+                    id: chapter?.id || Date.now(),
+                    title: toSafeText(chapter?.title || '무제'),
+                    content: sanitizeHtmlContent(chapter?.content || ''),
+                }))
+                : [],
+        };
+
+        const safeLock = sanitizePasswordLock(novel?.passwordLock);
+        if (safeLock) {
+            safeNovel.passwordLock = safeLock;
+            delete safeNovel.password;
+        } else if (novel?.password) {
+            safeNovel.password = toSafeText(novel.password);
+        } else {
+            delete safeNovel.password;
+        }
+        return safeNovel;
+    });
+}
+
+function sanitizeCharacters(value) {
+    if (!Array.isArray(value)) return [];
+
+    return value.map((character) => ({
+        ...character,
+        id: character?.id || Date.now(),
+        name: toSafeText(character?.name),
+        age: toSafeText(character?.age),
+        role: toSafeText(character?.role),
+        appearance: toSafeText(character?.appearance),
+        personality: toSafeText(character?.personality),
+    }));
+}
+
+function normalizeState() {
+    library = sanitizeLibrary(library);
+    settings = sanitizeSettings(settings);
+    characterList = sanitizeCharacters(characterList);
+}
+
+function bytesToHex(bytes) {
+    return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashPassword(password, salt) {
+    const encoded = new TextEncoder().encode(`${salt}:${password}`);
+    const digest = await crypto.subtle.digest('SHA-256', encoded);
+    return bytesToHex(new Uint8Array(digest));
+}
+
+async function createPasswordLock(password) {
+    const saltBytes = new Uint8Array(16);
+    crypto.getRandomValues(saltBytes);
+    const salt = bytesToHex(saltBytes);
+    return {
+        version: PASSWORD_LOCK_VERSION,
+        algorithm: 'SHA-256',
+        salt,
+        hash: await hashPassword(password, salt),
+    };
+}
+
+async function verifyPasswordLock(lock, password) {
+    if (!lock || password == null) return false;
+    return await hashPassword(password, lock.salt) === lock.hash;
+}
+
+function isNovelLocked(novel) {
+    return Boolean(novel?.passwordLock || novel?.password);
+}
+
+async function verifyNovelPassword(novel, password) {
+    if (novel.passwordLock) return await verifyPasswordLock(novel.passwordLock, password);
+    return novel.password === password;
+}
+
+async function migrateLegacyPasswordLocks() {
+    let changed = false;
+
+    for (const novel of library) {
+        if (novel.password && novel.passwordLock) {
+            delete novel.password;
+            changed = true;
+            continue;
+        }
+        if (novel.password && !novel.passwordLock) {
+            novel.passwordLock = await createPasswordLock(novel.password);
+            delete novel.password;
+            changed = true;
+        }
+    }
+
+    if (changed) saveLibrary();
+}
+
+function getLastActiveState() {
+    const active = currentNovelId && currentChapterId
+        ? { novelId: currentNovelId, chapterId: currentChapterId }
+        : readStoredJson('editorLastActive', null);
+    return sanitizeLastActive(active);
+}
+
+function syncActiveEditorToModel() {
+    const novel = getCurrentNovel();
+    if (!novel || !currentChapterId) return;
+
+    if (isHtmlMode) {
+        const safeHtml = sanitizeHtmlContent(htmlEditor.value);
+        htmlEditor.value = safeHtml;
+        editor.innerHTML = safeHtml;
+    }
+
+    const chapter = novel.chapters.find((item) => item.id === currentChapterId);
+    if (chapter) {
+        chapter.title = toSafeText(titleInput.value.trim() || '무제');
+        chapter.content = sanitizeHtmlContent(editor.innerHTML);
+        editor.innerHTML = chapter.content;
+        htmlEditor.value = chapter.content;
+    }
+    novel.memo = toSafeText(memoTextarea.value);
+}
+
+function getSnapshotState() {
+    return {
+        library: sanitizeLibrary(library),
+        settings: sanitizeSettings(settings),
+        characters: sanitizeCharacters(characterList),
+        lastActive: getLastActiveState(),
+    };
+}
+
+function saveSafetyBackup(reason) {
+    syncActiveEditorToModel();
+    const backups = readStoredJson(SAFETY_BACKUP_KEY, []);
+    const backup = {
+        id: `safety-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        reason,
+        savedAt: new Date().toISOString(),
+        data: getSnapshotState(),
+    };
+    localStorage.setItem(SAFETY_BACKUP_KEY, JSON.stringify([backup, ...backups].slice(0, MAX_SAFETY_BACKUPS)));
+    return backup;
+}
+
+async function applyRestoredState(state) {
+    if (!Array.isArray(state?.library)) throw new Error('Invalid restored library');
+    library = sanitizeLibrary(state?.library);
+    settings = sanitizeSettings(state?.settings || settings);
+    characterList = sanitizeCharacters(state?.characters || characterList);
+    const lastActive = sanitizeLastActive(state?.lastActive);
+    if (lastActive) {
+        localStorage.setItem('editorLastActive', JSON.stringify(lastActive));
+    } else {
+        localStorage.removeItem('editorLastActive');
+    }
+    await migrateLegacyPasswordLocks();
+    saveLibrary();
+    applySettings();
+    renderSymbolButtons();
+}
+
 // ============================================================
 // [3] 인증 시스템
 // ============================================================
@@ -421,11 +664,11 @@ btnAuthAction.addEventListener('click', async () => {
 });
 
 if (btnGuest) {
-    btnGuest.addEventListener('click', () => {
+    btnGuest.addEventListener('click', async () => {
         loginOverlay.style.display = 'none';
         if (userInfoDisplay) userInfoDisplay.innerText = '비로그인 (로컬 모드)';
         currentUser = null;
-        init(); 
+        await init();
     });
 }
 
@@ -439,7 +682,7 @@ onAuthStateChanged(auth, async (user) => {
         const displayName = user.displayName || user.email.split('@')[0];
         if(userInfoDisplay) userInfoDisplay.innerText = `${displayName}님 (Cloud On)`;
         await syncFromCloud(user.uid);
-        init();
+        await init();
     } else {
         currentUser = null;
         loginOverlay.style.display = 'flex';
@@ -472,12 +715,12 @@ async function syncFromCloud(uid) {
                     await saveToCloud();
                     if(sidebarStatus) sidebarStatus.innerText = "서버 업데이트 완료";
                 } else {
-                    applyServerData(serverData);
-                    if(sidebarStatus) sidebarStatus.innerText = "서버 데이터 로드";
+                    const applied = await applyServerData(serverData);
+                    if(sidebarStatus) sidebarStatus.innerText = applied ? "서버 데이터 로드" : "서버 데이터 오류";
                 }
             } else {
-                applyServerData(serverData);
-                if(sidebarStatus) sidebarStatus.innerText = "동기화 완료";
+                const applied = await applyServerData(serverData);
+                if(sidebarStatus) sidebarStatus.innerText = applied ? "동기화 완료" : "서버 데이터 오류";
             }
         } else {
             await saveToCloud();
@@ -489,67 +732,61 @@ async function syncFromCloud(uid) {
 }
 
 // [수정됨] 서버 데이터 적용 (마지막 작업 위치 동기화)
-// script.js의 applyServerData 함수 전체를 이것으로 교체하세요
-function applyServerData(data) {
-    // [수정됨] 압축된 데이터인지 확인 후 해제
+async function applyServerData(data) {
+    let nextLibrary = null;
+
     if (data.isCompressed && data.compressedLibrary) {
         try {
             const decompressed = LZString.decompressFromUTF16(data.compressedLibrary);
-            library = JSON.parse(decompressed);
+            nextLibrary = JSON.parse(decompressed);
         } catch (e) {
             console.error("압축 해제 실패", e);
-            // 만약 실패하면 기존 데이터 유지하거나 빈 배열
+            return false;
         }
     } else if (data.library) {
-        // 구버전(압축 안 된) 데이터 호환성 유지
-        library = data.library;
+        nextLibrary = data.library;
     }
 
-    // 로컬 스토리지에 반영
-    localStorage.setItem('novelLibrary', JSON.stringify(library));
+    if (!Array.isArray(nextLibrary)) {
+        console.warn("서버 데이터의 library 형식이 올바르지 않아 적용하지 않았습니다.");
+        return false;
+    }
 
-    if (data.settings) {
-        settings = data.settings;
-        localStorage.setItem('editorSettings', JSON.stringify(settings));
-    }
-    if (data.characters) {
-        characterList = data.characters;
-        localStorage.setItem('characterList', JSON.stringify(characterList));
-    }
-    if (data.lastActive) {
-        localStorage.setItem('editorLastActive', JSON.stringify(data.lastActive));
-    }
-    
-    // 타임스탬프 업데이트
-    if (data.lastUpdated) {
-        localStorage.setItem('localLastUpdated', data.lastUpdated);
-    }
+    await applyRestoredState({
+        library: nextLibrary,
+        settings: data.settings || settings,
+        characters: data.characters || characterList,
+        lastActive: data.lastActive,
+    });
+
+    if (data.lastUpdated) localStorage.setItem('localLastUpdated', data.lastUpdated);
+    return true;
 }
 async function saveToCloud() {
     if (!currentUser) return;
-    try {
-        const now = new Date().toISOString();
-        
-        // [수정됨] 메인 저장소도 라이브러리를 압축합니다!
-        const compressedLibrary = LZString.compressToUTF16(JSON.stringify(library));
+    syncActiveEditorToModel();
+    normalizeState();
 
+    const now = new Date().toISOString();
+    const state = getSnapshotState();
+    const compressedLibrary = LZString.compressToUTF16(JSON.stringify(state.library));
+
+    try {
         await setDoc(doc(db, "users", currentUser.uid), {
-            // library: library,  <-- 원본 제거 (용량 초과 원인)
-            compressedLibrary: compressedLibrary, // <-- 압축된 데이터
-            isCompressed: true, // <-- 압축 여부 표시
-            
-            settings: settings,
-            characters: characterList,
+            compressedLibrary,
+            isCompressed: true,
+            settings: state.settings,
+            characters: state.characters,
             lastUpdated: now,
-            lastActive: { novelId: currentNovelId, chapterId: currentChapterId }
+            lastActive: state.lastActive,
         });
         localStorage.setItem('localLastUpdated', now);
-    } catch (e) { 
-        console.error("저장 실패", e); 
-        // 용량 초과 시 사용자에게 알림
-        if(e.code === 'resource-exhausted') {
-             alert("⚠️ 저장 실패: 데이터 용량이 너무 큽니다. 불필요한 내용을 정리해주세요.");
+    } catch (error) {
+        console.error("저장 실패", error);
+        if (error.code === 'resource-exhausted') {
+            alert("⚠️ 저장 실패: 데이터 용량이 너무 큽니다. 불필요한 내용을 정리해주세요.");
         }
+        throw error;
     }
 }
 
@@ -599,7 +836,9 @@ editor.addEventListener('beforeinput', () => {
 
 // [중요] 초기화 로직 수정
 // [수정됨] 초기화 (마지막 작업 소설 자동 열기)
-function init() {
+async function init() {
+    normalizeState();
+    await migrateLegacyPasswordLocks();
     applySettings();
     checkMigration();
     renderSymbolButtons();
@@ -609,7 +848,7 @@ function init() {
         createNovel("새 소설");
     } else {
         // [NEW] 저장된 마지막 위치(editorLastActive)가 있는지 확인
-        const lastActive = JSON.parse(localStorage.getItem('editorLastActive'));
+        const lastActive = readStoredJson('editorLastActive', null);
         
         // 마지막 위치 정보가 있고, 해당 소설이 실제로 존재하면 그 ID 사용
         let targetNovelId = library[0].id; // 기본값: 첫 번째 소설
@@ -618,7 +857,7 @@ function init() {
         }
 
         // 1. 소설 열기 (기본적으로 1화가 열림)
-        openNovel(targetNovelId);
+        await openNovel(targetNovelId);
 
         // 2. 만약 마지막으로 작업한 챕터가 1화가 아니라면, 그 챕터로 이동
         if (lastActive && lastActive.chapterId && currentNovelId === targetNovelId) {
@@ -689,13 +928,22 @@ window.insertSymbol = insertSymbol;
 function checkMigration() {
     const old = localStorage.getItem('myNovelData');
     if (old) {
-        const parsed = JSON.parse(old);
-        if (Array.isArray(parsed)) {
-            library.push({ id: Date.now(), title: "복구된 소설", chapters: parsed, memo: localStorage.getItem('editorMemo')||'' });
-            localStorage.setItem('novelLibrary', JSON.stringify(library));
-            localStorage.removeItem('myNovelData');
-            localStorage.removeItem('editorMemo');
-            alert("이전 데이터 복구됨");
+        try {
+            const parsed = JSON.parse(old);
+            if (Array.isArray(parsed)) {
+                library.push({
+                    id: Date.now(),
+                    title: "복구된 소설",
+                    chapters: parsed,
+                    memo: localStorage.getItem('editorMemo') || '',
+                });
+                saveLibrary();
+                localStorage.removeItem('myNovelData');
+                localStorage.removeItem('editorMemo');
+                alert("이전 데이터 복구됨");
+            }
+        } catch (error) {
+            console.warn("이전 데이터 복구 실패", error);
         }
     }
 }
@@ -712,25 +960,45 @@ function renderLibrary() {
 
     sidebarListEl.innerHTML = '';
     library.forEach(n => {
-        const li = document.createElement('li'); 
+        const li = document.createElement('li');
         li.className = 'list-item novel-item';
-        
-        // 잠금 상태 확인
-        const isLocked = !!n.password;
+
+        const isLocked = isNovelLocked(n);
         const icon = isLocked ? '🔒' : '📘';
         const lockBtnTitle = isLocked ? '잠금 해제' : '비밀번호 설정';
         const lockBtnIcon = isLocked ? '🔓' : '🔐';
 
-        li.innerHTML = `
-            <div style="display:flex; align-items:center; overflow:hidden;">
-                <span class="novel-icon">${icon}</span>
-                <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${n.title}</span>
-            </div>
-            <div class="novel-actions">
-                <button class="lock-btn" title="${lockBtnTitle}">${lockBtnIcon}</button>
-                <button class="delete-btn" title="삭제">🗑️</button>
-            </div>
-        `;
+        const titleGroup = document.createElement('div');
+        titleGroup.style.display = 'flex';
+        titleGroup.style.alignItems = 'center';
+        titleGroup.style.overflow = 'hidden';
+
+        const iconEl = document.createElement('span');
+        iconEl.className = 'novel-icon';
+        iconEl.textContent = icon;
+
+        const titleEl = document.createElement('span');
+        titleEl.style.whiteSpace = 'nowrap';
+        titleEl.style.overflow = 'hidden';
+        titleEl.style.textOverflow = 'ellipsis';
+        titleEl.textContent = n.title;
+
+        const actions = document.createElement('div');
+        actions.className = 'novel-actions';
+
+        const lockBtn = document.createElement('button');
+        lockBtn.className = 'lock-btn';
+        lockBtn.title = lockBtnTitle;
+        lockBtn.textContent = lockBtnIcon;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.title = '삭제';
+        deleteBtn.textContent = '🗑️';
+
+        titleGroup.append(iconEl, titleEl);
+        actions.append(lockBtn, deleteBtn);
+        li.append(titleGroup, actions);
         
         li.onclick = (e) => { 
             // 삭제 버튼 클릭
@@ -745,41 +1013,58 @@ function renderLibrary() {
                 return;
             }
             // 소설 열기
-            openNovel(n.id); 
+            openNovel(n.id);
         };
         sidebarListEl.appendChild(li);
     });
 }
 
 function createNovelPrompt() { const t = prompt("제목:", "새 작품"); if (t) createNovel(t); }
-function createNovel(t) { library.push({ id: Date.now(), title: t, chapters: [{ id: Date.now(), title: '1화', content: '' }], memo: '' }); saveLibrary(); renderLibrary(); }
-function deleteNovel(id) { if(!confirm("삭제?")) return; library = library.filter(n => n.id !== id); saveLibrary(); renderLibrary(); }
+function createNovel(t) {
+    library.push({
+        id: Date.now(),
+        title: toSafeText(t || '새 작품'),
+        chapters: [{ id: Date.now(), title: '1화', content: '' }],
+        memo: '',
+    });
+    saveLibrary();
+    renderLibrary();
+}
+function deleteNovel(id) {
+    if(!confirm("삭제?")) return;
+    saveSafetyBackup('delete-novel');
+    library = library.filter(n => n.id !== id);
+    saveLibrary();
+    renderLibrary();
+}
 
 // [수정됨] 소설 열기 (중복 제거 및 최적화 완료)
-function openNovel(id) {
-    const n = library.find(n => n.id === id); 
+async function openNovel(id) {
+    const n = library.find(n => n.id === id);
     if (!n) return;
 
-    // [NEW] 비밀번호가 있으면 확인
-    if (n.password) {
+    if (isNovelLocked(n)) {
         const input = prompt("🔒 이 소설은 비밀번호로 보호되어 있습니다.\n비밀번호를 입력하세요:");
-        
-        // 1. [버그 수정] 취소 버튼을 눌렀을 때 -> 서재 목록으로 안전하게 복귀
+
         if (input === null) {
-            renderLibrary(); 
-            return; 
-        }
-        
-        // 2. 비밀번호가 틀렸을 때 -> 경고창 띄우고 서재로 쫓아냄
-        if (input !== n.password) {
-            alert("비밀번호가 일치하지 않습니다.");
-            renderLibrary(); // [버그 수정] UI 멈춤 방지
+            renderLibrary();
             return;
+        }
+
+        if (!await verifyNovelPassword(n, input)) {
+            alert("비밀번호가 일치하지 않습니다.");
+            renderLibrary();
+            return;
+        }
+
+        if (n.password && !n.passwordLock) {
+            n.passwordLock = await createPasswordLock(n.password);
+            delete n.password;
+            saveLibrary();
         }
     }
 
-    // --- 기존 로직 (비밀번호 통과 시 실행) ---
-    currentNovelId = id; memoTextarea.value = n.memo || '';
+    currentNovelId = id; memoTextarea.value = toSafeText(n.memo);
     if (n.chapters.length > 0) currentChapterId = n.chapters[0].id;
     else { const c = { id: Date.now(), title: '1화', content: '' }; n.chapters.push(c); currentChapterId = c.id; }
     
@@ -797,9 +1082,9 @@ function renderNovelSidebar() {
     sidebarTitle.innerText = n.title;
     sidebarTitle.style.cursor = "pointer"; sidebarTitle.title = "더블클릭 수정";
     sidebarTitle.ondblclick = () => {
-        const inp = document.createElement('input'); inp.value = n.title; inp.className = 'title-edit-input';
+        const inp = document.createElement('input'); inp.value = toSafeText(n.title); inp.className = 'title-edit-input';
         sidebarTitle.innerHTML=''; sidebarTitle.appendChild(inp); inp.focus();
-        const finish = () => { if(inp.value.trim() && inp.value!==n.title){ n.title=inp.value.trim(); saveLibrary(); } renderNovelSidebar(); };
+        const finish = () => { if(inp.value.trim() && inp.value!==n.title){ n.title=toSafeText(inp.value.trim()); saveLibrary(); } renderNovelSidebar(); };
         inp.onblur = finish; inp.onkeydown = (e) => { if(e.key==='Enter') finish(); }; inp.onclick = e => e.stopPropagation();
     };
     sidebarActionBtn.title = "챕터 추가"; sidebarActionBtn.onclick = addNewChapter;
@@ -810,17 +1095,41 @@ function renderNovelSidebar() {
     n.chapters.forEach(c => {
         const li = document.createElement('li'); li.className = `list-item chapter-item ${c.id===currentChapterId?'active':''}`;
         li.setAttribute('draggable','true'); li.setAttribute('data-id', c.id);
-        li.innerHTML = `<span>${c.title||'무제'}</span><button class="delete-btn">✕</button>`;
+        const title = document.createElement('span');
+        title.textContent = c.title || '무제';
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '✕';
+        li.append(title, deleteBtn);
         li.onclick = (e) => { if(e.target.classList.contains('delete-btn')) { deleteChapter(c.id); return; } switchChapter(c.id); };
         sidebarListEl.appendChild(li);
     });
 }
 
-function addNewChapter() { performSave(); const n = getCurrentNovel(); n.chapters.push({ id: Date.now(), title: `${n.chapters.length+1}화`, content: '' }); loadChapter(n.chapters[n.chapters.length-1].id); renderNovelSidebar(); }
-function deleteChapter(id) { const n = getCurrentNovel(); if(n.chapters.length<=1) return alert("최소 1개 필요"); if(!confirm("삭제?")) return; n.chapters = n.chapters.filter(c => c.id!==id); if(currentChapterId===id) loadChapter(n.chapters[0].id); else renderNovelSidebar(); saveLibrary(); }
+async function addNewChapter() {
+    await performSave({ syncCloud: false });
+    const n = getCurrentNovel();
+    if (!n) return;
+    n.chapters.push({ id: Date.now(), title: `${n.chapters.length+1}화`, content: '' });
+    loadChapter(n.chapters[n.chapters.length-1].id);
+    renderNovelSidebar();
+    saveLibrary();
+}
+function deleteChapter(id) {
+    const n = getCurrentNovel();
+    if(!n) return;
+    if(n.chapters.length<=1) return alert("최소 1개 필요");
+    if(!confirm("삭제?")) return;
+    saveSafetyBackup('delete-chapter');
+    n.chapters = n.chapters.filter(c => c.id!==id);
+    if(currentChapterId===id) loadChapter(n.chapters[0].id); else renderNovelSidebar();
+    saveLibrary();
+}
 function getCurrentNovel() { return library.find(n => n.id === currentNovelId); }
 
 function enableDragAndDrop() {
+    if (enableDragAndDrop.enabled) return;
+    enableDragAndDrop.enabled = true;
     let d = null;
     sidebarListEl.addEventListener('dragstart', e => { if(viewMode!=='novel'||!e.target.classList.contains('chapter-item')) return; d=e.target; e.target.classList.add('dragging'); });
     sidebarListEl.addEventListener('dragend', e => { if(!d) return; e.target.classList.remove('dragging'); d=null; updateChaptersOrder(); });
@@ -830,14 +1139,17 @@ function getDragAfterElement(c, y) { const els = [...c.querySelectorAll('.chapte
 function updateChaptersOrder() { const n = getCurrentNovel(); const newC = []; sidebarListEl.querySelectorAll('.chapter-item').forEach(item => { const id = Number(item.getAttribute('data-id')); const c = n.chapters.find(ch => ch.id === id); if (c) newC.push(c); }); n.chapters = newC; performSave(); }
 
 // [수정됨] 챕터 로드 (위치 기억 기능 추가)
-function loadChapter(id) { 
-    const n = getCurrentNovel(); 
-    const c = n.chapters.find(ch => ch.id === id); 
-    if (c) { 
-        currentChapterId = id; 
-        titleInput.value = c.title; 
-        editor.innerHTML = c.content; 
-        htmlEditor.value = c.content; 
+function loadChapter(id) {
+    const n = getCurrentNovel();
+    if (!n) return;
+    const c = n.chapters.find(ch => ch.id === id);
+    if (c) {
+        currentChapterId = id;
+        c.title = toSafeText(c.title || '무제');
+        c.content = sanitizeHtmlContent(c.content || '');
+        titleInput.value = c.title;
+        editor.innerHTML = c.content;
+        htmlEditor.value = c.content;
         undoStack=[]; redoStack=[]; 
         hasUnsavedChanges = false; 
         updateUnsavedIndicator(); 
@@ -855,28 +1167,31 @@ function loadChapter(id) {
 }
 
 // [누락된 함수 추가] 챕터 전환
-function switchChapter(id) { performSave(); loadChapter(id); }
+async function switchChapter(id) { await performSave(); loadChapter(id); }
 // [수정됨] 저장 로직 (메시지 덮어쓰기 버그 수정)
-function performSave() {
-    if (viewMode === 'library') return;
-    const n = getCurrentNovel(); 
+async function performSave(options = {}) {
+    if (viewMode === 'library') return false;
+    const n = getCurrentNovel();
     // [안전장치] 소설이 없으면 저장 중단
     if (!n) {
         console.warn("저장할 소설이 선택되지 않았습니다.");
-        return; 
+        return false;
     }
-    
-    if (isHtmlMode) editor.innerHTML = htmlEditor.value;
-    const c = n.chapters.find(ch => ch.id === currentChapterId);
-    if (c) { c.title = titleInput.value; c.content = editor.innerHTML; }
-    n.memo = memoTextarea.value;
-    
+
+    syncActiveEditorToModel();
     saveLibrary();
-    
-    if (currentUser) {
-        saveToCloud();
-        lastSavedDisplay.innerText = "저장됨(Cloud)";
+
+    if (currentUser && options.syncCloud !== false) {
+        lastSavedDisplay.innerText = "저장 중...";
         lastSavedDisplay.style.color = '#4a90e2';
+        try {
+            await saveToCloud();
+            lastSavedDisplay.innerText = "저장됨(Cloud)";
+            lastSavedDisplay.style.color = '#4a90e2';
+        } catch (error) {
+            lastSavedDisplay.innerText = "클라우드 저장 실패(Local 보존)";
+            lastSavedDisplay.style.color = '#e74c3c';
+        }
     } else {
         lastSavedDisplay.innerText = "저장됨(Local)";
         lastSavedDisplay.style.color = '#2ecc71';
@@ -886,12 +1201,14 @@ function performSave() {
     // [중요] updateUnsavedIndicator() 호출 제거
     // (이 함수가 '준비됨'으로 텍스트를 즉시 덮어쓰기 때문)
     unsavedDot.style.display = 'none'; // 점만 끈다
-    
+
     setTimeout(() => { lastSavedDisplay.style.color = '#aaa'; }, 2000);
+    return true;
 }
 
-function saveLibrary() { 
-    localStorage.setItem('novelLibrary', JSON.stringify(library)); 
+function saveLibrary() {
+    normalizeState();
+    localStorage.setItem('novelLibrary', JSON.stringify(library));
     localStorage.setItem('editorSettings', JSON.stringify(settings));
     // [NEW] 캐릭터 데이터 로컬 저장
     localStorage.setItem('characterList', JSON.stringify(characterList)); 
@@ -1002,31 +1319,50 @@ window.closeSymbolEditor = function() {
 
 // 4. 저장하고 적용하기
 window.saveCustomSymbols = function() {
-    const val = symbolInput.value;
+    const val = toSafeText(symbolInput.value);
     settings.customSymbols = val; // 설정 객체 업데이트
+    settings = sanitizeSettings(settings);
     localStorage.setItem('editorSettings', JSON.stringify(settings)); // 로컬 저장
     
     // 클라우드 저장 (로그인 상태라면)
-    if (currentUser) saveToCloud();
+    if (currentUser) {
+        saveToCloud().catch((error) => {
+            console.error("기호 설정 클라우드 저장 실패", error);
+        });
+    }
     
     renderSymbolButtons(); // 버튼 다시 그리기
     window.closeSymbolEditor(); // 창 닫기
     alert("기호 설정이 저장되었습니다.");
 };
 
-function startAutoSaveTimer() { if (autoSaveTimerId) clearInterval(autoSaveTimerId); const m = parseInt(autoSaveInput.value) || 3; settings.autoSaveMin = m; localStorage.setItem('editorSettings', JSON.stringify(settings)); autoSaveTimerId = setInterval(() => { if (hasUnsavedChanges) performSave(); }, m * 60 * 1000); }
+function startAutoSaveTimer() { if (autoSaveTimerId) clearInterval(autoSaveTimerId); const m = Math.max(parseInt(autoSaveInput.value, 10) || 3, 1); settings.autoSaveMin = m; settings = sanitizeSettings(settings); localStorage.setItem('editorSettings', JSON.stringify(settings)); autoSaveTimerId = setInterval(() => { if (hasUnsavedChanges) performSave(); }, m * 60 * 1000); }
 function markAsUnsaved() { if (!hasUnsavedChanges) { hasUnsavedChanges = true; updateUnsavedIndicator(); } updateCount(); }
 function updateUnsavedIndicator() { unsavedDot.style.display = hasUnsavedChanges ? 'inline-block' : 'none'; lastSavedDisplay.innerText = hasUnsavedChanges ? '저장 안됨' : '준비됨'; }
 function updateCount() { let t = editor.innerText || ''; charCountEl.innerText = t.length; charCountNoSpaceEl.innerText = t.replace(/\s/g, '').length; updateGoalProgress(); }
 function updateGoalProgress() { const t = parseInt(targetCountInput.value) || 5000; const type = goalTypeSelect.value; let curr = (type === 'nospace') ? parseInt(charCountNoSpaceEl.innerText) : parseInt(charCountEl.innerText); let p = (curr / t) * 100; if (p > 100) p = 100; goalProgressBar.style.width = `${p}%`; goalPercentage.innerText = `${Math.floor((curr/t)*100)}%`; }
 
-targetCountInput.addEventListener('input', () => { settings.targetCount = targetCountInput.value; localStorage.setItem('editorSettings', JSON.stringify(settings)); updateGoalProgress(); });
-goalTypeSelect.addEventListener('change', () => { settings.goalType = goalTypeSelect.value; localStorage.setItem('editorSettings', JSON.stringify(settings)); updateGoalProgress(); });
+targetCountInput.addEventListener('input', () => { settings.targetCount = targetCountInput.value; settings = sanitizeSettings(settings); localStorage.setItem('editorSettings', JSON.stringify(settings)); updateGoalProgress(); });
+goalTypeSelect.addEventListener('change', () => { settings.goalType = goalTypeSelect.value; settings = sanitizeSettings(settings); localStorage.setItem('editorSettings', JSON.stringify(settings)); updateGoalProgress(); });
 memoTextarea.addEventListener('input', () => markAsUnsaved());
 
 function insertSymbol(o, c) { if(isHtmlMode)return; recordHistory(); document.execCommand('insertText',false,o+c); if(c){const s=window.getSelection(),r=s.getRangeAt(0);r.setStart(r.startContainer,r.startOffset-1);r.setEnd(r.startContainer,r.startOffset-1);s.removeAllRanges();s.addRange(r);} editor.focus(); markAsUnsaved(); }
 function toggleMemoPanel() { memoPanel.classList.toggle('open'); }
-function toggleHtmlMode() { isHtmlMode=!isHtmlMode; if(isHtmlMode){htmlEditor.value=editor.innerHTML;editor.style.display='none';htmlEditor.style.display='block';}else{editor.innerHTML=htmlEditor.value;htmlEditor.style.display='none';editor.style.display='block';updateCount();} }
+function toggleHtmlMode() {
+    isHtmlMode = !isHtmlMode;
+    if (isHtmlMode) {
+        htmlEditor.value = sanitizeHtmlContent(editor.innerHTML);
+        editor.style.display = 'none';
+        htmlEditor.style.display = 'block';
+    } else {
+        const safeHtml = sanitizeHtmlContent(htmlEditor.value);
+        htmlEditor.value = safeHtml;
+        editor.innerHTML = safeHtml;
+        htmlEditor.style.display = 'none';
+        editor.style.display = 'block';
+        updateCount();
+    }
+}
 function toggleSearchModal(){searchModal.style.display=(searchModal.style.display==='none'?'block':'none');if(searchModal.style.display==='block')findInput.focus();}
 function execCmd(c){ if(isHtmlMode)return; recordHistory(); document.execCommand(c,false,null); editor.focus(); markAsUnsaved(); }
 function extractPlainTextFromPastedHtml(html) {
@@ -1131,37 +1467,84 @@ editor.addEventListener('paste', e => {
     e.preventDefault();
     insertClipboardContent({ html, text }, mode);
 });
-function findAndReplace(){ const f=findInput.value,r=replaceInput.value; if(!f||isHtmlMode)return; if(!confirm('변경?'))return; const c=editor.innerHTML; const n=c.split(f).join(r); if(c===n)alert('없음'); else { recordHistory(); editor.innerHTML=n; markAsUnsaved(); toggleSearchModal(); alert('완료'); } }
-function autoLineBreak(){ if(isHtmlMode)return; const o=document.getElementById('lineBreakOption').value,ig=document.getElementById('ignoreEllipsis').checked,br=(o==='2'?'<br><br>':'<br>'); let h=editor.innerHTML,rx=ig ? /("[^"]*")|((?<!\.)\.(\s|&nbsp;))/g : /("[^"]*")|(\.(\s|&nbsp;))/g; const n=h.replace(rx, (m,q)=>{ return q ? m : '.'+br; }); if(h!==n){ recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); alert('완료'); } else alert('변경없음'); }
+function findAndReplace(){ const f=findInput.value,r=replaceInput.value; if(!f||isHtmlMode)return; if(!confirm('변경?'))return; const c=editor.innerHTML; const n=sanitizeHtmlContent(c.split(f).join(r)); if(c===n)alert('없음'); else { recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); toggleSearchModal(); alert('완료'); } }
+function autoLineBreak(){ if(isHtmlMode)return; const o=document.getElementById('lineBreakOption').value,ig=document.getElementById('ignoreEllipsis').checked,br=(o==='2'?'<br><br>':'<br>'); let h=editor.innerHTML,rx=ig ? /("[^"]*")|((?<!\.)\.(\s|&nbsp;))/g : /("[^"]*")|(\.(\s|&nbsp;))/g; const n=sanitizeHtmlContent(h.replace(rx, (m,q)=>{ return q ? m : '.'+br; })); if(h!==n){ recordHistory(); editor.innerHTML=n; htmlEditor.value=n; markAsUnsaved(); alert('완료'); } else alert('변경없음'); }
 
-function downloadAll(format) {
-    const n = getCurrentNovel(); if(!n) return; performSave();
+async function downloadAll(format) {
+    const n = getCurrentNovel(); if(!n) return; await performSave({ syncCloud: false });
     if(!confirm(`${format.toUpperCase()} 저장?`)) return;
+    const safeNovel = sanitizeLibrary([n])[0];
+    const fileName = toSafeText(safeNovel.title || 'novel').replace(/[\\/:*?"<>|]/g, '_');
     if (format === 'txt') {
         let all = ""; const line = "\n\n====================\n\n";
-        n.chapters.forEach((c,i)=>{ const t=document.createElement('div'); t.innerHTML=c.content.replace(/<br\s*\/?>/gi,"\n"); all+=`[${c.title}]\n\n${t.innerText}`; if(i<n.chapters.length-1)all+=line; });
-        saveBlob(new Blob([all],{type:'text/plain'}), `${n.title}.txt`);
+        safeNovel.chapters.forEach((c,i)=>{ const t=document.createElement('div'); t.innerHTML=c.content.replace(/<br\s*\/?>/gi,"\n"); all+=`[${c.title}]\n\n${t.innerText}`; if(i<safeNovel.chapters.length-1)all+=line; });
+        saveBlob(new Blob([all],{type:'text/plain'}), `${fileName}.txt`);
     } else if (format === 'docx') {
-        let c = `<!DOCTYPE html><html><head><meta charset='utf-8'><title>${n.title}</title><body>`;
-        n.chapters.forEach(ch => { c += `<h1>${ch.title}</h1>${ch.content}<br><br>`; });
+        let c = `<!DOCTYPE html><html><head><meta charset='utf-8'><title>${escapeHtml(safeNovel.title)}</title><body>`;
+        safeNovel.chapters.forEach(ch => { c += `<h1>${escapeHtml(ch.title)}</h1>${ch.content}<br><br>`; });
         c += `</body></html>`;
-        if (typeof htmlDocx !== 'undefined') saveBlob(htmlDocx.asBlob(c), `${n.title}.docx`); else alert("Lib Error");
+        if (typeof htmlDocx !== 'undefined') saveBlob(htmlDocx.asBlob(c), `${fileName}.docx`); else alert("Lib Error");
     }
 }
 
-function backupData() { performSave(); const d = { version: "9.0", backupDate: new Date().toISOString(), library: library, settings: settings }; saveBlob(new Blob([JSON.stringify(d, null, 2)],{type:'application/json'}), `Backup_${new Date().toISOString().slice(0,10)}.json`); }
-function restoreData(e) { const f=e.target.files[0]; if(!f||!confirm("덮어쓰기 주의"))return; const r=new FileReader(); r.onload=ev=>{ try{const d=JSON.parse(ev.target.result); if(d.library)library=d.library; if(d.settings)settings=d.settings; saveLibrary(); localStorage.setItem('editorSettings',JSON.stringify(settings)); init(); alert("완료");}catch(e){alert("실패");}}; r.readAsText(f); e.target.value=''; }
+async function backupData() {
+    syncActiveEditorToModel();
+    saveLibrary();
+    const d = { version: APP_VERSION, backupDate: new Date().toISOString(), ...getSnapshotState() };
+    saveBlob(new Blob([JSON.stringify(d, null, 2)],{type:'application/json'}), `Backup_${new Date().toISOString().slice(0,10)}.json`);
+}
+function restoreData(e) {
+    const f=e.target.files[0];
+    if(!f||!confirm("덮어쓰기 주의")) {
+        e.target.value='';
+        return;
+    }
+    const r=new FileReader();
+    r.onload=async ev=>{
+        try{
+            const d=JSON.parse(ev.target.result);
+            if(!Array.isArray(d.library)) throw new Error('Invalid library');
+            saveSafetyBackup('backup-restore');
+            await applyRestoredState({
+                library: d.library,
+                settings: d.settings || settings,
+                characters: d.characters || characterList,
+                lastActive: d.lastActive,
+            });
+            await init();
+            alert("완료");
+        }catch(error){
+            console.error("복원 실패", error);
+            alert("실패");
+        }
+    };
+    r.readAsText(f);
+    e.target.value='';
+}
 function saveBlob(b,n){const u=window.URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=n;a.click();window.URL.revokeObjectURL(u);}
 function applySettings(){if(settings.darkMode){document.body.classList.add('dark-mode');document.getElementById('themeBtn').innerText='☀️';}else{document.body.classList.remove('dark-mode');document.getElementById('themeBtn').innerText='🌙';}if(settings.autoSaveMin)autoSaveInput.value=settings.autoSaveMin;}
-function toggleDarkMode(){settings.darkMode=!settings.darkMode;localStorage.setItem('editorSettings',JSON.stringify(settings));applySettings();}
+function toggleDarkMode(){settings.darkMode=!settings.darkMode;settings=sanitizeSettings(settings);localStorage.setItem('editorSettings',JSON.stringify(settings));applySettings();}
 function handleFileSelect(event){
     const file = event.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    if (file.name.endsWith('.txt')) { reader.onload = function(e) { createNewChapter(file.name, e.target.result.replace(/\n/g, '<br>')); }; reader.readAsText(file); } 
+    if (file.name.endsWith('.txt')) { reader.onload = function(e) { createNewChapter(file.name, escapeHtml(e.target.result).replace(/\n/g, '<br>')); }; reader.readAsText(file); }
     else if (file.name.endsWith('.docx')) { reader.onload = function(e) { mammoth.convertToHtml({ arrayBuffer: e.target.result }).then(function(result) { createNewChapter(file.name, result.value); }).catch(function(err) { alert("docx 오류"); }); }; reader.readAsArrayBuffer(file); }
     event.target.value = '';
 }
-function createNewChapter(name, content) { performSave(); const novel = getCurrentNovel(); if(!novel) return; const newChapter = { id: Date.now(), title: name.replace(/\.(txt|docx)$/i, ''), content: content }; novel.chapters.push(newChapter); loadChapter(newChapter.id); renderNovelSidebar(); }
+async function createNewChapter(name, content) {
+    await performSave({ syncCloud: false });
+    const novel = getCurrentNovel();
+    if(!novel) return;
+    const newChapter = {
+        id: Date.now(),
+        title: toSafeText(name).replace(/\.(txt|docx)$/i, '') || '무제',
+        content: sanitizeHtmlContent(content),
+    };
+    novel.chapters.push(newChapter);
+    loadChapter(newChapter.id);
+    renderNovelSidebar();
+    saveLibrary();
+}
 
 editor.addEventListener('input', markAsUnsaved);
 titleInput.addEventListener('input', markAsUnsaved);
@@ -1171,30 +1554,30 @@ backupInput.addEventListener('change', restoreData);
 window.onbeforeunload=function(){if(hasUnsavedChanges)return "저장안됨";}
 
 // [NEW] 소설 잠금/해제 기능
-function toggleLock(id) {
+async function toggleLock(id) {
     const n = library.find(n => n.id === id);
     if (!n) return;
 
-    if (n.password) {
-        // 이미 잠긴 경우 -> 해제 시도
+    if (isNovelLocked(n)) {
         const input = prompt("잠금을 해제하려면 현재 비밀번호를 입력하세요:");
         if (input === null) return;
-        
-        if (input === n.password) {
-            delete n.password; // 비밀번호 삭제
+
+        if (await verifyNovelPassword(n, input)) {
+            delete n.password;
+            delete n.passwordLock;
             alert("잠금이 해제되었습니다.");
             saveLibrary();
-            renderLibrary(); // 아이콘 변경을 위해 다시 렌더링
+            renderLibrary();
         } else {
             alert("비밀번호가 틀렸습니다.");
         }
     } else {
-        // 잠기지 않은 경우 -> 잠금 설정
         const newPass = prompt("설정할 비밀번호를 입력하세요.\n(주의: 분실 시 복구가 어렵습니다)");
         if (newPass && newPass.trim() !== "") {
             const confirmPass = prompt("비밀번호 확인을 위해 한 번 더 입력해주세요.");
             if (newPass === confirmPass) {
-                n.password = newPass; // 비밀번호 저장
+                n.passwordLock = await createPasswordLock(newPass);
+                delete n.password;
                 alert("비밀번호가 설정되었습니다. 이제 열 때마다 비밀번호가 필요합니다.");
                 saveLibrary();
                 renderLibrary();
@@ -1214,20 +1597,22 @@ async function saveSnapshot() {
     if (!currentUser) return alert("로그인이 필요한 기능입니다.");
     if (!confirm("현재 상태를 클라우드 히스토리에 박제하시겠습니까?\n(기존 데이터는 유지되고, 새로운 기록이 추가됩니다.)")) return;
 
- try {
+    try {
         const now = new Date();
-        
-        // [수정됨] 라이브러리(library) 전체를 문자열로 만들고 압축합니다.
-        const compressedLibrary = LZString.compressToUTF16(JSON.stringify(library));
+        syncActiveEditorToModel();
+        saveLibrary();
+        const state = getSnapshotState();
+        const compressedLibrary = LZString.compressToUTF16(JSON.stringify(state.library));
 
         const snapshotData = {
-            // library: library,  <-- 기존 코드 삭제 (원본 저장 X)
-            compressedData: compressedLibrary, // <-- 압축된 데이터 저장
-            isCompressed: true, // 압축 여부 표시
-            settings: settings,
+            compressedData: compressedLibrary,
+            isCompressed: true,
+            settings: state.settings,
+            characters: state.characters,
+            lastActive: state.lastActive,
             savedAt: now.toISOString(),
             deviceInfo: navigator.userAgent,
-            summary: `소설 ${library.length}개 / ${library.reduce((acc,cur)=>acc+cur.chapters.length,0)}개 챕터`
+            summary: `소설 ${state.library.length}개 / ${state.library.reduce((acc,cur)=>acc+cur.chapters.length,0)}개 챕터`
         };
 
         await addDoc(collection(db, "users", currentUser.uid, "snapshots"), snapshotData);
@@ -1243,7 +1628,12 @@ async function openSnapshotList() {
     if (!currentUser) return alert("로그인이 필요한 기능입니다.");
     
     const listContainer = document.getElementById('snapshotList');
-    listContainer.innerHTML = '<div style="padding:20px; text-align:center;">목록을 불러오는 중...</div>';
+    listContainer.replaceChildren();
+    const loading = document.createElement('div');
+    loading.style.padding = '20px';
+    loading.style.textAlign = 'center';
+    loading.textContent = '목록을 불러오는 중...';
+    listContainer.appendChild(loading);
     document.getElementById('historyModal').style.display = 'block';
 
     try {
@@ -1254,7 +1644,12 @@ async function openSnapshotList() {
         listContainer.innerHTML = ''; // 초기화
 
         if (querySnapshot.empty) {
-            listContainer.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">저장된 히스토리가 없습니다.</div>';
+            const empty = document.createElement('div');
+            empty.style.padding = '20px';
+            empty.style.textAlign = 'center';
+            empty.style.color = '#999';
+            empty.textContent = '저장된 히스토리가 없습니다.';
+            listContainer.appendChild(empty);
             return;
         }
 
@@ -1262,24 +1657,42 @@ async function openSnapshotList() {
             const data = doc.data();
             const date = new Date(data.savedAt).toLocaleString();
             
-            // 리스트 아이템 생성
             const item = document.createElement('div');
             item.className = 'history-item';
-            item.innerHTML = `
-                <div class="history-info">
-                    <div class="history-date">📅 ${date}</div>
-                    <div class="history-summary">${data.summary || '내용 없음'}</div>
-                </div>
-                <div class="history-actions">
-                    <button class="btn-tool" onclick="window.loadSnapshot('${doc.id}')">불러오기</button>
-                    <button class="delete-btn" onclick="window.deleteSnapshot('${doc.id}')">🗑️</button>
-                </div>
-            `;
+
+            const info = document.createElement('div');
+            info.className = 'history-info';
+            const dateEl = document.createElement('div');
+            dateEl.className = 'history-date';
+            dateEl.textContent = `📅 ${date}`;
+            const summary = document.createElement('div');
+            summary.className = 'history-summary';
+            summary.textContent = data.summary || '내용 없음';
+
+            const actions = document.createElement('div');
+            actions.className = 'history-actions';
+            const loadBtn = document.createElement('button');
+            loadBtn.className = 'btn-tool';
+            loadBtn.textContent = '불러오기';
+            loadBtn.onclick = () => window.loadSnapshot(doc.id);
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.textContent = '🗑️';
+            deleteBtn.onclick = () => window.deleteSnapshot(doc.id);
+
+            info.append(dateEl, summary);
+            actions.append(loadBtn, deleteBtn);
+            item.append(info, actions);
             listContainer.appendChild(item);
         });
     } catch (e) {
         console.error("목록 로드 실패", e);
-        listContainer.innerHTML = '<div style="color:red; text-align:center;">목록을 불러오지 못했습니다.</div>';
+        listContainer.replaceChildren();
+        const errorMessage = document.createElement('div');
+        errorMessage.style.color = 'red';
+        errorMessage.style.textAlign = 'center';
+        errorMessage.textContent = '목록을 불러오지 못했습니다.';
+        listContainer.appendChild(errorMessage);
     }
 }
 
@@ -1294,21 +1707,24 @@ window.loadSnapshot = async function(docId) {
         if (docSnap.exists()) {
             const data = docSnap.data();
             
-            // [수정됨] 압축된 데이터인지 확인 후 해제
+            let nextLibrary = null;
             if (data.isCompressed && data.compressedData) {
                 const decompressed = LZString.decompressFromUTF16(data.compressedData);
-                library = JSON.parse(decompressed);
+                nextLibrary = JSON.parse(decompressed);
             } else if (data.library) {
-                // 예전 방식(압축 안 된 데이터)도 호환성 유지
-                library = data.library;
-            } else {
-                library = [];
+                nextLibrary = data.library;
             }
-            
-            settings = data.settings || settings;
-            
-            saveLibrary(); 
-            renderLibrary(); 
+
+            if (!Array.isArray(nextLibrary)) throw new Error('Invalid snapshot library');
+
+            saveSafetyBackup('snapshot-restore');
+            await applyRestoredState({
+                library: nextLibrary,
+                settings: data.settings || settings,
+                characters: data.characters || characterList,
+                lastActive: data.lastActive,
+            });
+            await init();
             document.getElementById('historyModal').style.display = 'none';
             alert("복원되었습니다! 과거의 데이터로 돌아왔습니다.");
         } else {
@@ -1340,6 +1756,109 @@ window.closeHistoryModal = function() {
 window.saveSnapshot = saveSnapshot;
 window.openSnapshotList = openSnapshotList;
 
+function loadSafetyBackups() {
+    return readStoredJson(SAFETY_BACKUP_KEY, []).filter((backup) => backup?.id && backup?.data);
+}
+
+function writeSafetyBackups(backups) {
+    localStorage.setItem(SAFETY_BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_SAFETY_BACKUPS)));
+}
+
+function getSafetyBackupReasonLabel(reason) {
+    return ({
+        'backup-restore': '백업 복원 전',
+        'snapshot-restore': '타임머신 복원 전',
+        'safety-restore': '복구함 복원 전',
+        'delete-novel': '소설 삭제 전',
+        'delete-chapter': '챕터 삭제 전',
+        'delete-character': '캐릭터 삭제 전',
+    })[reason] || '자동 안전 백업';
+}
+
+function renderSafetyBackupList() {
+    const list = document.getElementById('safetyBackupList');
+    if (!list) return;
+    list.replaceChildren();
+
+    const backups = loadSafetyBackups();
+    if (backups.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.padding = '20px';
+        empty.style.textAlign = 'center';
+        empty.style.color = '#999';
+        empty.textContent = '저장된 안전 백업이 없습니다.';
+        list.appendChild(empty);
+        return;
+    }
+
+    backups.forEach((backup) => {
+        const state = backup.data || {};
+        const item = document.createElement('div');
+        item.className = 'history-item';
+
+        const info = document.createElement('div');
+        info.className = 'history-info';
+        const date = document.createElement('div');
+        date.className = 'history-date';
+        date.textContent = `📅 ${new Date(backup.savedAt).toLocaleString()}`;
+        const summary = document.createElement('div');
+        summary.className = 'history-summary';
+        summary.textContent = `${getSafetyBackupReasonLabel(backup.reason)} · 소설 ${Array.isArray(state.library) ? state.library.length : 0}개`;
+
+        const actions = document.createElement('div');
+        actions.className = 'history-actions';
+        const restoreBtn = document.createElement('button');
+        restoreBtn.className = 'btn-tool';
+        restoreBtn.textContent = '복원';
+        restoreBtn.onclick = () => restoreSafetyBackup(backup.id);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '🗑️';
+        deleteBtn.onclick = () => deleteSafetyBackup(backup.id);
+
+        info.append(date, summary);
+        actions.append(restoreBtn, deleteBtn);
+        item.append(info, actions);
+        list.appendChild(item);
+    });
+}
+
+function openSafetyBackupList() {
+    renderSafetyBackupList();
+    const modal = document.getElementById('safetyModal');
+    if (modal) modal.style.display = 'block';
+}
+
+function closeSafetyBackupList() {
+    const modal = document.getElementById('safetyModal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function restoreSafetyBackup(id) {
+    const backups = loadSafetyBackups();
+    const backup = backups.find((item) => item.id === id);
+    if (!backup) return alert('백업을 찾을 수 없습니다.');
+    if (!Array.isArray(backup.data?.library)) return alert('백업 데이터가 올바르지 않습니다.');
+    if (!confirm('이 안전 백업으로 복원할까요? 현재 상태는 다시 안전 백업으로 남깁니다.')) return;
+
+    saveSafetyBackup('safety-restore');
+    await applyRestoredState(backup.data);
+    await init();
+    closeSafetyBackupList();
+    alert('복원되었습니다.');
+}
+
+function deleteSafetyBackup(id) {
+    if (!confirm('이 안전 백업을 삭제할까요?')) return;
+    writeSafetyBackups(loadSafetyBackups().filter((backup) => backup.id !== id));
+    renderSafetyBackupList();
+}
+
+window.openSafetyBackupList = openSafetyBackupList;
+window.closeSafetyBackupList = closeSafetyBackupList;
+window.restoreSafetyBackup = restoreSafetyBackup;
+window.deleteSafetyBackup = deleteSafetyBackup;
+
 // ============================================================
 // [NEW] 캐릭터 설정집 시스템
 // ============================================================
@@ -1360,19 +1879,28 @@ window.toggleCharacterModal = function() {
 window.renderCharacterList = function() {
     const listEl = document.getElementById('characterList');
     listEl.innerHTML = '';
+    characterList = sanitizeCharacters(characterList);
 
     characterList.forEach(char => {
         const div = document.createElement('div');
         div.className = `char-item ${char.id === selectedCharId ? 'active' : ''}`;
         div.onclick = () => window.selectCharacter(char.id);
-        
-        div.innerHTML = `
-            <div class="char-avatar">${char.name ? char.name[0] : '?'}</div>
-            <div class="char-info">
-                <div class="char-name">${char.name || '이름 없음'}</div>
-                <div class="char-sub">${char.role || '역할 미정'}</div>
-            </div>
-        `;
+
+        const avatar = document.createElement('div');
+        avatar.className = 'char-avatar';
+        avatar.textContent = char.name ? char.name[0] : '?';
+
+        const info = document.createElement('div');
+        info.className = 'char-info';
+        const name = document.createElement('div');
+        name.className = 'char-name';
+        name.textContent = char.name || '이름 없음';
+        const role = document.createElement('div');
+        role.className = 'char-sub';
+        role.textContent = char.role || '역할 미정';
+
+        info.append(name, role);
+        div.append(avatar, info);
         listEl.appendChild(div);
     });
 };
@@ -1396,16 +1924,17 @@ window.addNewCharacter = function() {
 window.selectCharacter = function(id) {
     selectedCharId = id;
     const char = characterList.find(c => c.id === id);
+    if (!char) return;
     
     document.getElementById('charDetailForm').style.display = 'block';
     document.getElementById('charEmptyState').style.display = 'none';
 
     // 입력창에 값 채우기
-    document.getElementById('charName').value = char.name;
-    document.getElementById('charAge').value = char.age || '';
-    document.getElementById('charRole').value = char.role || '';
-    document.getElementById('charAppearance').value = char.appearance || '';
-    document.getElementById('charPersonality').value = char.personality || '';
+    document.getElementById('charName').value = toSafeText(char.name);
+    document.getElementById('charAge').value = toSafeText(char.age);
+    document.getElementById('charRole').value = toSafeText(char.role);
+    document.getElementById('charAppearance').value = toSafeText(char.appearance);
+    document.getElementById('charPersonality').value = toSafeText(char.personality);
 
     window.renderCharacterList(); // 선택 효과 갱신
 };
@@ -1416,11 +1945,11 @@ window.saveCurrentCharacter = function() {
     const char = characterList.find(c => c.id === selectedCharId);
     if (!char) return;
 
-    char.name = document.getElementById('charName').value;
-    char.age = document.getElementById('charAge').value;
-    char.role = document.getElementById('charRole').value;
-    char.appearance = document.getElementById('charAppearance').value;
-    char.personality = document.getElementById('charPersonality').value;
+    char.name = toSafeText(document.getElementById('charName').value);
+    char.age = toSafeText(document.getElementById('charAge').value);
+    char.role = toSafeText(document.getElementById('charRole').value);
+    char.appearance = toSafeText(document.getElementById('charAppearance').value);
+    char.personality = toSafeText(document.getElementById('charPersonality').value);
 
     window.renderCharacterList(); // 목록의 이름/역할 갱신
     alert("캐릭터 설정이 저장되었습니다.");
@@ -1432,6 +1961,7 @@ window.deleteCurrentCharacter = function() {
     if (!selectedCharId) return;
     if (!confirm("정말 이 캐릭터를 삭제하시겠습니까?")) return;
 
+    saveSafetyBackup('delete-character');
     characterList = characterList.filter(c => c.id !== selectedCharId);
     selectedCharId = null;
     

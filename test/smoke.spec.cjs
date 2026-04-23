@@ -330,6 +330,19 @@ test("launcher opens isolated test mode without touching production storage", as
     expect(reloadedPastedHtml.spanStyle).toContain("font-size: 20px");
     expect(reloadedPastedHtml.fontStyle).toContain("font-size: 24px");
 
+    await page.evaluate(() => {
+        const library = JSON.parse(localStorage.getItem("webeditor:test:library"));
+        library[0].chapters[0].content = '<span style="color: rgb(220, 38, 38); font-size: 20px; background-color: yellow">저장소 서식</span><script>window.__xss = 1</script>';
+        localStorage.setItem("webeditor:test:library", JSON.stringify(library));
+    });
+    await page.reload();
+    const restoredStorageHtml = await page.locator("#mainEditor").evaluate((node) => node.innerHTML);
+    expect(restoredStorageHtml).toContain("font-size: 20px");
+    expect(restoredStorageHtml).toContain("color: rgb(220, 38, 38)");
+    expect(restoredStorageHtml).not.toContain("background");
+    expect(restoredStorageHtml).not.toContain("script");
+    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+
     await page.locator("#mainEditor").fill("");
     await page.locator("#mainEditor").focus();
     await page.keyboard.down("Control");
@@ -523,6 +536,13 @@ test("launcher opens isolated test mode without touching production storage", as
     });
     expect(deleteSafetyBackup.reason).toBe("delete-chapter");
     expect(JSON.stringify(deleteSafetyBackup.data.library)).toContain("2화");
+
+    await page.locator("#btnSafetyBackups").click();
+    await expect(page.locator("#safetyBackupList")).toContainText("delete-chapter");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#safetyBackupList [data-action='restore-safety-backup']").first().click();
+    await expect(page.locator("#sidebarTitle")).toContainText("회귀 테스트 소설");
+    await expect(page.locator("#sidebarList .chapter-item")).toHaveCount(2);
 
     await page.setInputFiles("#fileInput", {
         name: "imported-chapter.txt",

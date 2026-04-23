@@ -145,20 +145,32 @@ export function escapeHtml(value) {
 export function sanitizeLibrary(library) {
     if (!Array.isArray(library)) return [];
 
-    return library.map((novel) => ({
-        ...novel,
-        title: toSafeText(novel.title),
-        memo: toSafeText(novel.memo),
-        password: novel.password && !novel.passwordLock ? toSafeText(novel.password) : undefined,
-        passwordLock: sanitizePasswordLock(novel.passwordLock),
-        chapters: Array.isArray(novel.chapters)
-            ? novel.chapters.map((chapter) => ({
-                ...chapter,
-                title: toSafeText(chapter.title),
-                content: sanitizeHtml(chapter.content),
-            }))
-            : [],
-    }));
+    return library.map((novel) => {
+        const passwordLock = sanitizePasswordLock(novel.passwordLock);
+        const safeNovel = {
+            ...novel,
+            title: toSafeText(novel.title),
+            memo: toSafeText(novel.memo),
+            chapters: Array.isArray(novel.chapters)
+                ? novel.chapters.map((chapter) => ({
+                    ...chapter,
+                    title: toSafeText(chapter.title),
+                    content: sanitizeClipboardHtml(chapter.content),
+                }))
+                : [],
+        };
+
+        if (passwordLock) {
+            safeNovel.passwordLock = passwordLock;
+            delete safeNovel.password;
+        } else if (novel.password) {
+            safeNovel.password = toSafeText(novel.password);
+        } else {
+            delete safeNovel.password;
+        }
+
+        return safeNovel;
+    });
 }
 
 function sanitizePasswordLock(lock) {

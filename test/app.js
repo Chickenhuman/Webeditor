@@ -6,6 +6,8 @@ import {
 import { createCloudMock } from "./modules/cloud.mock.js";
 import {
     getProductionStorageSnapshot,
+    deleteSafetyBackup,
+    loadSafetyBackups,
     loadTestState,
     resetTestData,
     saveCharacters,
@@ -118,6 +120,82 @@ function createSafetyBackup(reason) {
 
     persistLocalState();
     return saveSafetyBackup(reason, getSnapshotState());
+}
+
+function applyRestoredState(restoredState) {
+    const restoredLibrary = sanitizeLibrary(restoredState.library);
+    const restoredSettings = { ...DEFAULT_SETTINGS, ...(restoredState.settings || {}) };
+    const restoredCharacters = sanitizeCharacters(restoredState.characters || []);
+
+    library = restoredLibrary;
+    settings = restoredSettings;
+    characters = restoredCharacters;
+    persistLocalState();
+    if (restoredState.lastActive) saveLastActive(restoredState.lastActive);
+    settingsController.applySettings();
+    editorController.renderSymbols();
+    return restoredState.lastActive || null;
+}
+
+function renderSafetyBackups() {
+    const backups = loadSafetyBackups();
+    elements.safetyBackupList.replaceChildren();
+
+    if (!backups.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty-message";
+        empty.textContent = "저장된 안전 백업이 없습니다.";
+        elements.safetyBackupList.appendChild(empty);
+        return;
+    }
+
+    backups.forEach((backup) => {
+        const item = document.createElement("article");
+        item.className = "history-item";
+
+        const info = document.createElement("div");
+        info.className = "history-info";
+        const date = document.createElement("strong");
+        date.textContent = new Date(backup.savedAt).toLocaleString();
+        const summary = document.createElement("span");
+        const novelCount = backup.data?.library?.length || 0;
+        summary.textContent = `${backup.reason} / 소설 ${novelCount}개`;
+        info.append(date, summary);
+
+        const actions = document.createElement("div");
+        actions.className = "history-actions";
+        const restoreButton = makeButton("복원", "btn-tool small", "restore-safety-backup");
+        const deleteButton = makeButton("삭제", "btn-tool small danger", "delete-safety-backup");
+        restoreButton.dataset.id = backup.id;
+        deleteButton.dataset.id = backup.id;
+        actions.append(restoreButton, deleteButton);
+
+        item.append(info, actions);
+        elements.safetyBackupList.appendChild(item);
+    });
+}
+
+async function restoreSafetyBackup(id) {
+    if (!window.confirm("선택한 안전 백업으로 테스트 데이터를 복원할까요?")) return;
+    const backup = loadSafetyBackups().find((item) => item.id === id);
+    if (!backup?.data?.library) {
+        showToast("안전 백업을 찾지 못했습니다.");
+        return;
+    }
+
+    const lastActive = applyRestoredState(backup.data);
+    elements.safetyModal.classList.remove("open");
+    if (lastActive?.novelId) {
+        await libraryController.openNovel(lastActive.novelId, { chapterId: lastActive.chapterId, skipLock: true });
+    } else {
+        libraryController.renderLibrary();
+    }
+    showToast("안전 백업이 복원되었습니다.");
+}
+
+function openSafetyBackups() {
+    renderSafetyBackups();
+    elements.safetyModal.classList.add("open");
 }
 
 function initControllers() {
@@ -285,22 +363,13 @@ function restoreData(event) {
                 throw new Error("Backup library must be an array.");
             }
 
-            const restoredLibrary = sanitizeLibrary(data.library);
-            const restoredSettings = data.settings && typeof data.settings === "object"
-                ? { ...settings, ...data.settings }
-                : settings;
-            const restoredCharacters = Array.isArray(data.characters)
-                ? sanitizeCharacters(data.characters)
-                : characters;
-
             createSafetyBackup("backup-restore");
-            library = restoredLibrary;
-            settings = restoredSettings;
-            characters = restoredCharacters;
-            persistLocalState();
-            if (data.lastActive) saveLastActive(data.lastActive);
-            settingsController.applySettings();
-            editorController.renderSymbols();
+            applyRestoredState({
+                library: data.library,
+                settings: data.settings && typeof data.settings === "object" ? { ...settings, ...data.settings } : settings,
+                characters: Array.isArray(data.characters) ? data.characters : characters,
+                lastActive: data.lastActive,
+            });
             libraryController.renderLibrary();
             showToast("테스트 백업 복원이 완료되었습니다.");
         } catch (error) {
@@ -358,6 +427,17 @@ function bindEvents() {
     elements.btnCharacters.addEventListener("click", characterController.openCharacterModal);
     elements.btnSnapshotSave.addEventListener("click", snapshotController.saveSnapshot);
     elements.btnSnapshots.addEventListener("click", snapshotController.openSnapshotList);
+    elements.btnSafetyBackups.addEventListener("click", openSafetyBackups);
+    elements.btnCloseSafety.addEventListener("click", () => elements.safetyModal.classList.remove("open"));
+    elements.safetyBackupList.addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-action]");
+        if (!button) return;
+        if (button.dataset.action === "restore-safety-backup") await restoreSafetyBackup(button.dataset.id);
+        if (button.dataset.action === "delete-safety-backup") {
+            deleteSafetyBackup(button.dataset.id);
+            renderSafetyBackups();
+        }
+    });
     elements.btnBackup.addEventListener("click", () => {
         void backupData();
     });

@@ -148,6 +148,7 @@
 <button onclick="window.toggleCharacterModal()" class="btn-tool" title="캐릭터 설정집">👥 캐릭터</button>
 <button onclick="window.saveSnapshot()" class="btn-tool" title="새 기록으로 저장 (박제)">📸 기록저장</button>
 <button onclick="window.openSnapshotList()" class="btn-tool" title="저장된 기록 보기">🕰️ 타임머신</button>
+<button onclick="window.openSafetyBackupList()" class="btn-tool" title="삭제/복원 전 자동 안전 백업">🛟 복구함</button>
             <button onclick="window.backupData()" class="btn-tool">☁️ 백업</button>
             <button onclick="window.toggleDarkMode()" id="themeBtn" class="btn-tool icon-btn">🌙</button>
             
@@ -251,8 +252,8 @@
             <button onclick="window.findAndReplace()" class="btn-replace">모두 바꾸기</button>
         </div>
     </div>
-<div id="historyModal" class="login-overlay" style="display:none; z-index: 5000;">
-    <div class="login-box" style="width: 400px; text-align:left;">
+	<div id="historyModal" class="login-overlay" style="display:none; z-index: 5000;">
+	    <div class="login-box" style="width: 400px; text-align:left;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
             <h3 style="margin:0;">🕰️ 클라우드 타임머신</h3>
             <button onclick="window.closeHistoryModal()" class="btn-close" style="font-size:24px;">×</button>
@@ -262,10 +263,24 @@
         </p>
         <div id="snapshotList" style="height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; background: #fafafa;">
             </div>
-    </div>
-</div>
+	    </div>
+	</div>
 
-<div id="characterModal" class="login-overlay" style="display:none; z-index: 6000;">
+	<div id="safetyModal" class="login-overlay" style="display:none; z-index: 5100;">
+	    <div class="login-box" style="width: 420px; text-align:left;">
+	        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
+	            <h3 style="margin:0;">🛟 자동 복구함</h3>
+	            <button onclick="window.closeSafetyBackupList()" class="btn-close" style="font-size:24px;">×</button>
+	        </div>
+	        <p style="font-size:12px; color:#666; margin-bottom:15px;">
+	            삭제나 전체 복원 직전에 자동으로 남긴 로컬 백업입니다.
+	        </p>
+	        <div id="safetyBackupList" style="height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; background: #fafafa;">
+	        </div>
+	    </div>
+	</div>
+
+	<div id="characterModal" class="login-overlay" style="display:none; z-index: 6000;">
     <div class="login-box" style="width: 800px; height: 600px; padding: 0; display: flex; flex-direction: column; overflow: hidden; text-align: left;">
         
         <div style="padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #f8f9fa;">

@@ -89,6 +89,7 @@
                     <button id="btnCharacters" class="btn-tool" type="button" title="캐릭터 설정집">👥 캐릭터</button>
                     <button id="btnSnapshotSave" class="btn-tool" type="button" title="새 mock 기록으로 저장">📸 기록저장</button>
                     <button id="btnSnapshots" class="btn-tool" type="button" title="저장된 mock 기록 보기">🕰️ 타임머신</button>
+                    <button id="btnSafetyBackups" class="btn-tool" type="button" title="삭제/복원 전 자동 안전 백업">🛟 복구함</button>
                     <button id="btnBackup" class="btn-tool" type="button">☁️ 백업</button>
                     <button id="btnTheme" class="btn-tool icon-btn" type="button">🌙</button>
 
@@ -196,6 +197,17 @@
             </div>
             <p class="modal-help">테스트 모드에서만 저장되는 mock 기록입니다. 운영 클라우드에는 반영되지 않습니다.</p>
             <div id="snapshotList" class="snapshot-list"></div>
+        </div>
+    </div>
+
+    <div id="safetyModal" class="login-overlay overlay-modal" role="dialog" aria-label="안전 백업 복구함">
+        <div class="login-box history-box">
+            <div class="test-modal-header">
+                <h3>🛟 안전 백업 복구함</h3>
+                <button id="btnCloseSafety" class="btn-close" type="button">×</button>
+            </div>
+            <p class="modal-help">삭제나 덮어쓰기 복원 직전에 자동으로 남긴 테스트 전용 복구 지점입니다.</p>
+            <div id="safetyBackupList" class="snapshot-list"></div>
         </div>
     </div>
 
